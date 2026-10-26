@@ -9,8 +9,8 @@ android {
         applicationId = "io.github.dpan538.inkreader.preview"
         minSdk = 33
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.1.0-preview.9"
+        versionCode = 10
+        versionName = "0.1.0-preview.10"
         testInstrumentationRunner = "com.inkreader.nativeink.InkEvidence"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

@@ -8,9 +8,9 @@ Paperis 纸墨 是一款专为 Pad 与平板设备打造的极简水墨屏风质
 
 ## 下载
 
-[![下载 Android APK](https://img.shields.io/badge/下载_Android_APK-0.1.0--preview.9-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.9/Paperis-0.1.0-preview.9.apk)
+[![下载 Android APK](https://img.shields.io/badge/下载_Android_APK-0.1.0--preview.10-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.10/Paperis-0.1.0-preview.10.apk)
 
-**[直接下载 Paperis 纸墨 APK](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.9/Paperis-0.1.0-preview.9.apk)** · [查看版本与校验值](https://github.com/dpan538/Paperis/releases)
+**[直接下载 Paperis 纸墨 APK](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.10/Paperis-0.1.0-preview.10.apk)** · [查看版本与校验值](https://github.com/dpan538/Paperis/releases)
 
 Android 13+，面向平板的预览版本，使用项目的预览开发签名。下载后允许浏览器安装应用；已有同签名预览可覆盖升级。小米 Pad 9 Pro Max 的实机验证仍待完成。
 
@@ -31,7 +31,7 @@ Android 13+，面向平板的预览版本，使用项目的预览开发签名。
 - **原生文本重排**：调整字体、字号、行距与横屏单双栏；竖屏自动单栏。重排后尽量保留当前正文位置。
 - **中文排版**：严格标点换行、两端排版、段末孤字回收与跨栏段落保护，减少最后一行只有一个字的情况。
 - **字体选择**：系统宋体、黑体，以及导入自己的 TTF、OTF、TTC 字体；缺失字形由系统回退。
-- **夜间与深色**：夜间模式模拟光导层充分混光后的均匀柔和前光，可调三档亮度；深色模式提供黑底白字，两者独立开关。灯光为视觉模拟。
+- **夜间与深色**：夜间模式模拟光导层充分混光后的均匀柔和前光，点亮后纸面变亮，三档亮度依次增强；深色模式提供黑底白字，两者独立开关。灯光为视觉模拟。
 - **设置**：与阅读菜单相同大小的设置页，支持中文 / English、手动拉取更新与提交反馈。下载和反馈会打开浏览器，由你决定后续操作。
 - **轻量记录**：每本书保存阅读位置，提供目录、进度与简单书签。
 

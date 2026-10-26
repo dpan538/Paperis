@@ -233,10 +233,12 @@ internal class InkMaterial {
                 // Keep only a very broad, sub-percent extraction variation: no exposed LEDs,
                 // periodic scallops, bright edge dots or local light-leak defects.
                 float guideUniformity = 1.0 - uv.y*0.006 + uv.x*0.003;
-                float frontEnergy = (0.075+0.105*lampPower)*guideUniformity;
+                float frontEnergy = (0.12+0.48*lampPower)*guideUniformity;
                 float scattering = mix(0.035+0.965*(1.0-clamp(quantized,0.0,1.0)),
                     0.06+0.44*clamp(quantized,0.0,1.0),dark);
-                float nightTone = tone*mix(0.79,0.90,dark)+frontEnergy*scattering;
+                // Front light adds reflected illumination inside the optical window.
+                // It must brighten paper at every level, without dimming the ambient substrate.
+                float nightTone = tone+(1.0-tone)*frontEnergy*scattering*window;
                 tone = mix(tone,nightTone,night);
                 // Warmth belongs to the light substrate, not colored pigment or colored UI.
                 // Dark ink stays neutral; the small channel spread never becomes a sepia wash.

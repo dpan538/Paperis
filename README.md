@@ -6,26 +6,36 @@
 
 Paperis 纸墨 是一款专为 Pad 与平板设备打造的极简水墨屏风质感阅读器。致力于重新找回传统纸质书带给人的宁静与沉浸感。
 
+## 下载
+
+[![下载 Android APK](https://img.shields.io/badge/下载_Android_APK-0.1.0--preview.8-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.8/Paperis-0.1.0-preview.8.apk)
+
+**[直接下载 Paperis 纸墨 APK](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.8/Paperis-0.1.0-preview.8.apk)** · [查看版本与校验值](https://github.com/dpan538/Paperis/releases)
+
+Android 13+，面向平板的预览版本，使用项目的预览开发签名。下载后允许浏览器安装应用；已有同签名预览可覆盖升级。小米 Pad 9 Pro Max 的实机验证仍待完成。
+
 ![Native Kotlin](https://img.shields.io/badge/Native-Kotlin-555555)
 ![Android 13+](https://img.shields.io/badge/Android-13%2B-555555)
 ![Source preview](https://img.shields.io/badge/Status-Source%20Preview-777777)
 [![MIT License](https://img.shields.io/badge/License-MIT-555555)](LICENSE)
 
-[阅读体验](#阅读体验) · [文件与导入](#文件与导入) · [构建与贡献](CONTRIBUTING.md) · [English](#about) · [MIT](LICENSE)
+[阅读体验](#阅读体验) · [文件与导入](#文件与导入) · [构建与贡献](CONTRIBUTING.md) · [重排验证](docs/REFLOW_TESTING.md) · [English](#about) · [MIT](LICENSE)
 
 ## 阅读体验
 
 打开应用，整页即是安静的墨水屏阅读界面。正文、文件列表和省略号菜单共用同一层温润的黑白灰表面。
 
 - **层次与质感**：微暖纸灰底材、哑光表面、细密颗粒与下沉墨层；柔和的受光随设备姿态轻微变化，可在菜单中关闭。
-- **三种阅读预设**：标准强调清晰的灰阶与墨迹；护眼·柔和降低视觉对比；类纸增加纸纤维般的微结构与墨色沉积差异。护眼为视觉预设。
+- **三种阅读预设**：白瓷呈现细润致密的浅色表面与清晰墨迹；护眼降低视觉对比、增加暖灰漫散射；类纸增加交错纤维般的微结构与墨色沉积差异。护眼为视觉预设。
 - **有节奏的刷新**：翻页保留轻微原位残影；切换预设、书籍或字体经过清除、墨迹沉积与稳定的过程。支持完整刷新，并尊重系统关闭动画的设置。
 - **原生文本重排**：调整字体、字号、行距与横屏单双栏；竖屏自动单栏。重排后尽量保留当前正文位置。
 - **中文排版**：严格标点换行、两端排版、段末孤字回收与跨栏段落保护，减少最后一行只有一个字的情况。
 - **字体选择**：系统宋体、黑体，以及导入自己的 TTF、OTF、TTC 字体；缺失字形由系统回退。
+- **夜间与深色**：夜间模式模拟光导层充分混光后的均匀柔和前光，可调三档亮度；深色模式提供黑底白字，两者独立开关。灯光为视觉模拟。
+- **设置**：与阅读菜单相同大小的设置页，支持中文 / English、手动拉取更新与提交反馈。下载和反馈会打开浏览器，由你决定后续操作。
 - **轻量记录**：每本书保存阅读位置，提供目录、进度与简单书签。
 
-点击左右区域、左右滑动或使用音量键翻页。右上角省略号和正文中央可打开阅读菜单；长按正文执行完整刷新。
+点击左右区域、左右滑动或使用音量键翻页。阅读页顶部“＋ 导入”直接进入导入面板；右上角省略号和正文中央可打开阅读菜单；长按正文执行完整刷新。
 
 Paperis 使用 Kotlin、原生 Canvas 与 AGSL 实现显示材质。软件模拟不改变平板屏幕的物理发光方式。
 
@@ -49,7 +59,7 @@ Paperis 使用 Kotlin、原生 Canvas 与 AGSL 实现显示材质。软件模拟
 
 - **系统**：Android 13 及以上。
 - **主要适配目标**：小米 Pad 9 Pro Max，横屏 3408 × 2272、3:2 布局，并支持旋转后的竖屏阅读。
-- **当前阶段**：可构建的原生源码预览。当前验证使用 Android 模拟器；尚未完成小米实机验证，也尚未发布正式 APK。
+- **当前阶段**：可构建的原生源码预览。当前验证使用 Android 模拟器；已提供预览 APK，尚未完成小米实机验证。
 
 欢迎为其他 Android 平板提交适配分支与 PR。设备信息、构建步骤和验证要求见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
@@ -57,13 +67,13 @@ Paperis 使用 Kotlin、原生 Canvas 与 AGSL 实现显示材质。软件模拟
 
 无需账号。书籍通过系统文件选择器授权导入，正文副本、导入字体、阅读位置和偏好保存在应用本地。清除应用数据或卸载会移除这些副本，不会删除原文件。
 
-应用不申请网络权限或全盘存储权限，不包含广告、统计追踪或遥测。你导入的书籍和字体仍受各自的版权与许可约束。
+应用不申请全盘存储权限，不包含广告、统计追踪或遥测。只有在你点击“拉取更新”时，应用才连接 GitHub 公共版本接口；下载与反馈通过浏览器打开，不会自动安装或提交反馈。你导入的书籍和字体仍受各自的版权与许可约束。
 
 ## About
 
 **Paperis 纸墨 — As gentle as paper, as pure as reading.**
 
-A minimal native Android reader for tablets, with a warm monochrome e-paper-inspired surface, staged ink refresh, local document import, text reflow, custom fonts and quiet reading presets. Built with Kotlin, Canvas and AGSL, for Android 13 and later.
+A minimal native Android reader for tablets, with a warm monochrome e-paper-inspired surface, staged ink refresh, local document import, text reflow, custom fonts, Porcelain / Gentle / Paper surfaces, independent night lighting and dark mode. Built with Kotlin, Canvas and AGSL, for Android 13 and later.
 
 The primary layout target is the Xiaomi Pad 9 Pro Max. This is a source preview validated on an emulator; physical-device validation is still pending. See [CONTRIBUTING.md](CONTRIBUTING.md) for building and tablet adaptation.
 

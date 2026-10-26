@@ -69,8 +69,11 @@ class InkEvidence : Instrumentation() {
     }
     private var importsSuite=false
     private var pickerOnly=false
-    override fun onCreate(arguments: Bundle?) { pickerOnly=arguments?.getString("suite")=="picker"; importsSuite=arguments?.getString("suite")=="imports" || pickerOnly; super.onCreate(arguments); start() }
+    private var extraSuite=""
+    override fun onCreate(arguments: Bundle?) { extraSuite=arguments?.getString("suite").orEmpty(); pickerOnly=arguments?.getString("suite")=="picker"; importsSuite=arguments?.getString("suite")=="imports" || pickerOnly; super.onCreate(arguments); start() }
     override fun onStart() {
+        if(extraSuite=="reflow") { ReflowEvidence(this).run(); return }
+        if(extraSuite=="experience") { ReadingExperienceEvidence(this).run(); return }
         if(importsSuite) { ImportEvidence(this,pickerOnly).run(); return }
         var failure: String? = null
         try {

@@ -15,17 +15,30 @@ class MainActivity : Activity() {
     lateinit var inkView: InkView; private set
     private val imports = Executors.newSingleThreadExecutor()
     private var importing = false
+    private val updates = Executors.newSingleThreadExecutor()
+    internal var updateSource: () -> ReaderUpdates.Result = ReaderUpdates::fetch
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setDecorFitsSystemWindows(false)
-        inkView = InkView(this, ::chooseFiles, ::chooseFont)
+        inkView = InkView(this, ::chooseFiles, ::chooseFont, ::checkUpdates, ::openExternal)
         setContentView(inkView)
         fullscreen()
         onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
             if (!inkView.backFromTools()) { if (!inkView.libraryOpen) inkView.showFiles() else finish() }
         }
         acceptIntent(intent)
+    }
+
+    private fun checkUpdates() {
+        updates.execute {
+            val result=runCatching { updateSource() }.getOrDefault(ReaderUpdates.Result(4))
+            runOnUiThread { if(!isDestroyed) inkView.updateResult(result) }
+        }
+    }
+    private fun openExternal(url: String) {
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url))) }
+            .onFailure { inkView.updateResult(ReaderUpdates.Result(4)) }
     }
 
     private fun chooseFiles(folder: Boolean) {
@@ -44,7 +57,7 @@ class MainActivity : Activity() {
         if (resultCode != RESULT_OK || data == null) return
         if (requestCode == 13) {
             val uri = data.data ?: return
-            background("正在载入字体…") { inkView.files.importFont(uri); "字体已载入" to true }
+            background(inkView.text("正在载入字体…","Loading font…")) { inkView.files.importFont(uri); inkView.text("字体已载入","Font loaded") to true }
         } else if (requestCode == 12) data.data?.let(::importTree)
         else if (requestCode == 11) importUris(selected(data))
     }
@@ -57,18 +70,18 @@ class MainActivity : Activity() {
             Intent.ACTION_SEND_MULTIPLE -> intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)?.let(::importUris)
         }
     }
-    internal fun importUris(uris: List<Uri>) { background("正在导入 ${uris.size} 个文件…") {
+    internal fun importUris(uris: List<Uri>) { background(inkView.text("正在导入 ${uris.size} 个文件…","Importing ${uris.size} files…")) {
         require(uris.size <= 100) { "一次最多导入 100 个文件，请分批选择" }
         importBatch(uris.map { it to "" }) to false
     } }
-    internal fun importTree(uri:Uri) { background("正在读取文件夹…") { importBatch(treeFiles(uri)) to false } }
+    internal fun importTree(uri:Uri) { background(inkView.text("正在读取文件夹…","Reading folder…")) { importBatch(treeFiles(uri)) to false } }
     private fun importBatch(documents: List<Pair<Uri,String>>): String {
         var added = 0; var duplicates = 0; val errors = mutableListOf<String>()
         documents.forEach { (uri,folder) ->
             runCatching { inkView.files.import(uri,folder) }.onSuccess { if(it) added++ else duplicates++ }
-                .onFailure { errors += "${runCatching { inkView.files.displayName(uri) }.getOrDefault("文件")}：${it.message ?: "无法读取"}" }
+                .onFailure { errors += "${runCatching { inkView.files.displayName(uri) }.getOrDefault("文件")}：${ReaderErrors.message(it.message,inkView.english)}" }
         }
-        return "导入 $added · 已存在 $duplicates · 失败 ${errors.size}" + errors.firstOrNull()?.let { "\n$it" }.orEmpty()
+        return inkView.text("导入 $added · 已存在 $duplicates · 失败 ${errors.size}","Imported $added · Duplicates $duplicates · Failed ${errors.size}") + errors.firstOrNull()?.let { "\n$it" }.orEmpty()
     }
     private fun treeFiles(tree: Uri): List<Pair<Uri,String>> {
         val result = mutableListOf<Pair<Uri,String>>(); var visited = 0
@@ -101,12 +114,12 @@ class MainActivity : Activity() {
                 if(!isDestroyed) {
                     importing=false
                     result.onSuccess { (notice,font) -> if(font) inkView.fontImported() else inkView.showFiles(notice) }
-                        .onFailure { inkView.showFiles(it.message ?: "导入未完成，请重新选择文件") }
+                        .onFailure { inkView.showFiles(ReaderErrors.message(it.message,inkView.english)) }
                 }
             }
         }
     }
-    override fun onDestroy() { imports.shutdown(); super.onDestroy() }
+    override fun onDestroy() { imports.shutdown(); updates.shutdown(); super.onDestroy() }
 
     private fun fullscreen() {
         window.insetsController?.apply {

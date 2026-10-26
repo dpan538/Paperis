@@ -22,8 +22,8 @@ internal class InkMaterial {
     private var oldBitmap: Bitmap? = null
     private var nextBitmap: Bitmap? = null
     private var history: Bitmap? = null
-    private var previousPreset = 2
-    private var targetPreset = 2
+    private var previousAppearance = InkAppearance()
+    private var targetAppearance = InkAppearance()
     private val density = ColorMatrixColorFilter(floatArrayOf(
         0f,0f,0f,0f,255f,
         0f,0f,0f,0f,255f,
@@ -32,18 +32,18 @@ internal class InkMaterial {
     ))
     private val mask = Paint(Paint.ANTI_ALIAS_FLAG).apply { colorFilter = density }
 
-    fun setInitial(bitmap: Bitmap, preset: Int = 2) {
-        previousPreset = preset; targetPreset = preset
+    fun setInitial(bitmap: Bitmap, appearance: InkAppearance = InkAppearance()) {
+        previousAppearance = appearance; targetAppearance = appearance
         oldBitmap = bitmap; nextBitmap = bitmap
         history = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
         bind()
     }
 
-    fun update(bitmap: Bitmap, full: Boolean, preset: Int = targetPreset) {
-        val old = nextBitmap ?: run { setInitial(bitmap); return }
+    fun update(bitmap: Bitmap, full: Boolean, appearance: InkAppearance = targetAppearance) {
+        val old = nextBitmap ?: run { setInitial(bitmap,appearance); return }
         val memory = history ?: return
         oldBitmap = old; nextBitmap = bitmap
-        previousPreset = targetPreset; targetPreset = preset
+        previousAppearance = targetAppearance; targetAppearance = appearance
         if (full) memory.eraseColor(Color.TRANSPARENT) else {
             val c = Canvas(memory)
             // Decay accumulated history, then retain erased ink at its original pixel position.
@@ -73,7 +73,10 @@ internal class InkMaterial {
     fun draw(canvas: Canvas, elapsedMs: Long, active: Boolean, full: Boolean, tiltX: Float, tiltY: Float) {
         runtime.setFloatUniform("resolution", canvas.width.toFloat(), canvas.height.toFloat())
         runtime.setFloatUniform("viewPose", tiltX, tiltY)
-        runtime.setFloatUniform("readingPresets", previousPreset.toFloat(), targetPreset.toFloat())
+        runtime.setFloatUniform("readingPresets", previousAppearance.preset.toFloat(), targetAppearance.preset.toFloat())
+        runtime.setFloatUniform("nightLight",if(previousAppearance.night) 1f else 0f,if(targetAppearance.night) 1f else 0f)
+        runtime.setFloatUniform("darkMode",if(previousAppearance.dark) 1f else 0f,if(targetAppearance.dark) 1f else 0f)
+        runtime.setFloatUniform("lightLevel",previousAppearance.light.toFloat(),targetAppearance.light.toFloat())
         runtime.setFloatUniform("elapsed", elapsedMs.toFloat())
         runtime.setFloatUniform("active", if (active) 1f else 0f)
         runtime.setFloatUniform("fullRefresh", if (full) 1f else 0f)
@@ -82,7 +85,7 @@ internal class InkMaterial {
 
     companion object {
         // Independent physical cues: protective matte surface, laminated edge, and ink below it.
-        // Chosen visual approximations; no animated noise, paper fibers, metallic case or text blur.
+        // Fixed microstructure, shallow optical layers and guided front light; no animated noise or text blur.
         private val SOURCE = """
             uniform shader oldPage;
             uniform shader newPage;
@@ -91,6 +94,9 @@ internal class InkMaterial {
             uniform float2 resolution;
             uniform float2 viewPose;
             uniform float2 readingPresets;
+            uniform float2 nightLight;
+            uniform float2 darkMode;
+            uniform float2 lightLevel;
             uniform float elapsed;
             uniform float active;
             uniform float fullRefresh;
@@ -119,6 +125,9 @@ internal class InkMaterial {
                 float3 afterMode = float3(readingPresets.y < 0.5 ? 1.0 : 0.0,
                     readingPresets.y > 0.5 && readingPresets.y < 1.5 ? 1.0 : 0.0, readingPresets.y > 1.5 ? 1.0 : 0.0);
                 float3 modes = mix(beforeMode, afterMode, settling);
+                float night = mix(nightLight.x,nightLight.y,settling);
+                float dark = mix(darkMode.x,darkMode.y,settling);
+                float lampPower = mix(lightLevel.x,lightLevel.y,settling) * 0.25 + 0.5;
                 float ink = newInk;
 
                 if (active > 0.5 && fullRefresh < 0.5) {
@@ -159,9 +168,9 @@ internal class InkMaterial {
                 float3 keyLight = normalize(float3(-0.38 + viewPose.x * 0.45, -0.62 + viewPose.y * 0.45, 0.90));
                 float illumination = 0.014 + dot(float2(0.5) - uv, -keyLight.xy) * 0.034 - 0.010 * uv.x * uv.y;
                 float whiteGrain = dot(modes, float3(0.006, 0.008, 0.018));
-                float substrate = 0.846 + illumination + (capsuleCores - 0.5) * whiteGrain + (thickness - 0.5) * 0.006;
+                float substrate = dot(modes,float3(0.879,0.824,0.846)) + illumination + (capsuleCores - 0.5) * whiteGrain + (thickness - 0.5) * 0.006;
                 // Ink density varies within strokes as well as along anti-aliased contours.
-                float pigment = dot(modes, float3(0.084, 0.114, 0.091)) + capsuleCores * dot(modes, float3(0.025,0.022,0.047));
+                float pigment = dot(modes, float3(0.067, 0.114, 0.091)) + capsuleCores * dot(modes, float3(0.025,0.022,0.047));
                 float inkPlane = mix(substrate, pigment, clamp(quantized, 0.0, 1.0));
 
                 // Etched micro-normal field. Features stay fixed; their light response changes
@@ -181,7 +190,15 @@ internal class InkMaterial {
                 float microLight = (dot(normal, keyLight) - keyLight.z) * 0.045;
                 float surfaceGrain = (grain - 0.5) * 0.008 + (matte - 0.5) * 0.004 + microLight;
                 surfaceGrain *= dot(modes,float3(0.35,0.55,1.0));
-                float visibleInk = mix(inkPlane, 0.96, veil) + surfaceGrain;
+                // Interlocked pulp varies independently from the capsule field.
+                float fibers = structure.eval(float2(p.x/(31.0*scale),p.y/(1.6*scale))+float2(59.0,7.0)).g
+                    + structure.eval(float2(p.x/(1.7*scale),p.y/(23.0*scale))+float2(19.0,127.0)).b - 1.0;
+                float pulp = (fibers * 0.010 + (thickness-0.5)*0.009) * modes.z;
+                float visibleInk = mix(inkPlane, 0.96, veil) + surfaceGrain + pulp * (1.0-quantized*0.7);
+                float darkSubstrate = 0.082 + illumination*0.18 + surfaceGrain*0.6 + pulp*0.6;
+                float palePigment = 0.78 + capsuleCores*0.045;
+                float darkPlane = mix(darkSubstrate,palePigment,clamp(quantized,0.0,1.0));
+                visibleInk = mix(visibleInk,darkPlane,dark);
 
                 // The optical window is under the front surface. Its edge exposes a thin
                 // bond line, shallow sidewall and directional contact shadow, not a tablet body.
@@ -194,28 +211,37 @@ internal class InkMaterial {
                     + (0.031 + max(-keyLight.x, 0.0) * 0.035) * exp(-max(left, 0.0) / (5.5 * scale))
                     + (0.012 + max(keyLight.y, 0.0) * 0.035) * exp(-max(bottom, 0.0) / (3.2 * scale))
                     + (0.010 + max(keyLight.x, 0.0) * 0.035) * exp(-max(right, 0.0) / (3.2 * scale));
-                visibleInk -= shadow;
+                visibleInk -= shadow * mix(1.0,0.22,dark);
 
                 float distance = windowDistance(p, inset, 2.6 * scale);
                 float frontEdge = windowDistance(p, 6.0 * scale, 7.0 * scale);
-                float outerSurface = 0.665 + illumination * 1.6 + surfaceGrain;
-                float laminate = 0.735 + illumination * 0.8 + surfaceGrain;
+                float outerSurface = mix(0.665,0.115,dark) + illumination * mix(1.6,0.25,dark) + surfaceGrain;
+                float laminate = mix(0.735,0.145,dark) + illumination * mix(0.8,0.2,dark) + surfaceGrain;
                 // Separate, softly lit front edge and darker lower bond seam.
                 float frontHighlight = 0.055 * exp(-abs(frontEdge + 0.45 * scale) / (0.75 * scale));
                 float frontShadow = 0.055 * exp(-max(-frontEdge, 0.0) / (1.8 * scale));
                 float rim = mix(outerSurface, laminate, 1.0 - smoothstep(-0.65 * scale, 0.65 * scale, frontEdge));
                 rim += frontHighlight - frontShadow;
-                float bondLine = 0.22 * exp(-abs(distance) / (0.6 * scale));
+                float bondLine = mix(0.22,0.045,dark) * exp(-abs(distance) / (0.6 * scale));
                 rim -= bondLine;
                 float innerHighlight = 0.018 * exp(-abs(distance + 1.2 * scale) / (0.55 * scale));
                 visibleInk += innerHighlight;
                 float window = 1.0 - smoothstep(-0.7 * scale, 0.7 * scale, distance);
                 float tone = mix(rim, visibleInk, window);
-                tone = mix(tone,tone * 0.965 + 0.014,modes.y);
+                tone = mix(tone,tone * 0.965 + 0.014,modes.y*(1.0-dark));
+                // A normal front light is mixed inside the guide before it reaches the page.
+                // Keep only a very broad, sub-percent extraction variation: no exposed LEDs,
+                // periodic scallops, bright edge dots or local light-leak defects.
+                float guideUniformity = 1.0 - uv.y*0.006 + uv.x*0.003;
+                float frontEnergy = (0.075+0.105*lampPower)*guideUniformity;
+                float scattering = mix(0.035+0.965*(1.0-clamp(quantized,0.0,1.0)),
+                    0.06+0.44*clamp(quantized,0.0,1.0),dark);
+                float nightTone = tone*mix(0.79,0.90,dark)+frontEnergy*scattering;
+                tone = mix(tone,nightTone,night);
                 // Warmth belongs to the light substrate, not colored pigment or colored UI.
                 // Dark ink stays neutral; the small channel spread never becomes a sepia wash.
                 float paperWeight = smoothstep(0.18, 0.78, tone);
-                float warmth = dot(modes,float3(0.45,1.45,1.0));
+                float warmth = dot(modes,float3(0.35,1.30,1.0)) + night*0.85;
                 float3 paperTone = float3(tone) + float3(0.018, 0.008, -0.016) * paperWeight * warmth;
                 return half4(half3(clamp(paperTone, 0.0, 1.0)), 1.0);
             }

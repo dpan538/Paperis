@@ -22,28 +22,31 @@ internal class FileShelf {
             .map { ShelfItem(it, "文件夹", prefix + it, true) }
         return folders + files.filter { it.folder == folder }.sortedBy { it.name.lowercase() }.map { ShelfItem(it.name, it.format, it.id, false) }
     }
-    fun draw(c: Canvas, width: Float, height: Float, files: List<BookFile>, folder: String, page: Int, notice: String, busy: Boolean) {
+    fun draw(c: Canvas, width: Float, height: Float, files: List<BookFile>, folder: String, page: Int, notice: String, busy: Boolean, english: Boolean = false) {
         hits.clear()
+        fun t(zh: String,en: String) = if(english) en else zh
         fun label(s: String, x: Float, y: Float, size: Float = 20f, gray: Int = 65, max: Float = width - 184) {
             text.textSize = size; text.color = Color.rgb(gray,gray,gray)
             c.drawText(TextUtils.ellipsize(s, text, max, TextUtils.TruncateAt.END).toString(), x, y, text)
         }
         fun hit(rect: RectF, command: ShelfCommand) { if (!busy) hits += rect to command }
-        label("文件", 92f, 75f, 24f)
-        label("导入文件", width - 420, 73f, 18f); hit(RectF(width-442,28f,width-304,102f), ShelfCommand("import"))
-        label("导入文件夹", width - 270, 73f, 18f); hit(RectF(width-292,28f,width-125,102f), ShelfCommand("tree"))
-        label(if (folder.isEmpty()) "本地文件" else "‹  $folder",92f,145f,18f,110)
+        label(t("文件","Files"), 92f, 75f, 24f)
+        line.style=Paint.Style.STROKE; line.strokeWidth=1.1f
+        c.drawRoundRect(RectF(width-442,34f,width-304,94f),3f,3f,line)
+        label(t("＋ 导入文件","+ Import"), width - 430, 73f, 18f); hit(RectF(width-442,28f,width-304,102f), ShelfCommand("import"))
+        label(t("导入文件夹","Folder import"), width - 270, 73f, 18f); hit(RectF(width-292,28f,width-125,102f), ShelfCommand("tree"))
+        label(if (folder.isEmpty()) t("本地文件 · 选择文件或文件夹导入","Local files · Import files or a folder") else "‹  $folder",92f,145f,18f,110)
         if (folder.isNotEmpty()) hit(RectF(72f,105f,width-92,167f), ShelfCommand("up"))
         val entries = items(files, folder); val last = ((entries.size - 1) / 7).coerceAtLeast(0); val selected = page.coerceIn(0,last)
         entries.drop(selected*7).take(7).forEachIndexed { i, entry ->
             val top = 180f + i * 94f
             label(if (entry.folder) "▱  ${entry.label}" else entry.label, 108f, top+39, 22f, max=width-400)
-            label(entry.detail,width-240,top+39,17f,115,max=148f)
+            label(if(entry.folder) t("文件夹","Folder") else entry.detail,width-240,top+39,17f,115,max=148f)
             c.drawLine(92f,top+70,width-92,top+70,line)
             hit(RectF(92f,top,width-92,top+86), ShelfCommand(if (entry.folder) "folder" else "book",entry.id))
         }
-        if (entries.isEmpty()) label("此文件夹还没有书籍，点右上角导入。",108f,240f,21f,110)
-        val status = notice.ifEmpty { "TXT / EPUB / MD / HTML / DOCX / 文本 PDF" }
+        if (entries.isEmpty()) label(t("此文件夹还没有书籍，点右上角导入。","No books here yet. Choose Import above."),108f,240f,21f,110)
+        val status = notice.ifEmpty { t("TXT / EPUB / MD / HTML / DOCX / 文本 PDF","TXT / EPUB / MD / HTML / DOCX / Text PDF") }
         status.lineSequence().take(3).forEachIndexed { i,value -> label(value,92f,height-152+i*25,17f,110) }
         label("‹",96f,height-61,25f); hit(RectF(72f,height-100,180f,height-24),ShelfCommand("previous"))
         label("${selected+1} / ${last+1}",width/2-25,height-62,17f,110)

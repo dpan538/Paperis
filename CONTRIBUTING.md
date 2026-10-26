@@ -67,6 +67,15 @@ adb -s YOUR_TEST_SERIAL shell am instrument -w -e suite imports io.github.dpan53
 
 原生检查按 3408 × 2272、density 320、Android API 36 模拟器编写；系统文件选择步骤当前依赖英文 DocumentsUI，可按设备语言和文件管理器调整测试驱动。测试夹具 Provider 仅在测试 APK 中启用；截图、报告和设备日志保存在本地。PR 可附针对改动的脱敏图片和结果，不要把原始验收目录提交到仓库。
 
+重排专用测试独立于截图比对，使用人工编写的逐字金样和横竖屏排版矩阵：
+
+```sh
+adb -s YOUR_TEST_SERIAL shell am instrument -w -e suite reflow io.github.dpan538.inkreader.preview.test/com.inkreader.nativeink.InkEvidence
+adb -s YOUR_TEST_SERIAL shell am instrument -w -e suite experience io.github.dpan538.inkreader.preview.test/com.inkreader.nativeink.InkEvidence
+```
+
+`experience` 覆盖导入入口、设置尺寸、语言切换、更新成功与失败回调、浏览器交接、夜间灯光和深色模式。更新分支使用可控响应，避免把外部网络稳定性当作 UI 测试前提；发布后另行核对真实 GitHub 版本接口。更多边界见 [重排验证](docs/REFLOW_TESTING.md)。
+
 ## Commit messages
 
 沿用 Baro 的提交习惯：英文主题说明具体变化，正文说明原因、行为与实际验证；可在末尾附简短中文说明。不要只写模糊标题、声称未执行的检查或重写已共享提交。

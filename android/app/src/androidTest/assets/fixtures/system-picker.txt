@@ -1,0 +1,5 @@
+系统文件选择验证
+
+SAF_ACTUAL_SELECTION
+
+这是由系统 Downloads 文件选择器选取的原始正文，验证选择、授权和导入整条路径。

@@ -1,0 +1,5 @@
+* text=auto
+/android/gradlew text eol=lf
+*.bat text eol=crlf
+/android/app/src/androidTest/assets/fixtures/UTF16.txt -text
+/android/app/src/androidTest/assets/fixtures/中文编码.txt -text

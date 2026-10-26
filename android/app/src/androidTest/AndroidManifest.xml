@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <provider android:name="com.inkreader.nativeink.ImportFixtures" android:authorities="io.github.dpan538.inkreader.fixtures" android:exported="true" android:grantUriPermissions="true" />
+    </application>
+</manifest>

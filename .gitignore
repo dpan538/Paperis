@@ -1,0 +1,43 @@
+# Private product work, reference originals, evidence and delivery packages
+/local/
+/delivery/
+/AGENTS.md
+/android/scripts/
+
+# Local tooling, SDKs, emulators, build outputs and caches
+**/.tooling/
+**/.gradle/
+**/.kotlin/
+**/build/
+local.properties
+.idea/
+.vscode/
+*.iml
+.venv/
+__pycache__/
+*.pyc
+
+# Credentials and signing material
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.pem
+*.key
+.aws/
+.codex/
+.agents/
+
+# Generated packages, captures and temporary machine state
+*.apk
+*.aab
+*.log
+/output/
+/tmp/
+.DS_Store
+._*
+*.swp
+*.swo

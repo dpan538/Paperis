@@ -31,11 +31,7 @@ internal class FileShelf {
         }
         fun hit(rect: RectF, command: ShelfCommand) { if (!busy) hits += rect to command }
         label(t("文件","Files"), 92f, 75f, 24f)
-        line.style=Paint.Style.STROKE; line.strokeWidth=1.1f
-        c.drawRoundRect(RectF(width-442,34f,width-304,94f),3f,3f,line)
-        label(t("＋ 导入文件","+ Import"), width - 430, 73f, 18f); hit(RectF(width-442,28f,width-304,102f), ShelfCommand("import"))
-        label(t("导入文件夹","Folder import"), width - 270, 73f, 18f); hit(RectF(width-292,28f,width-125,102f), ShelfCommand("tree"))
-        label(if (folder.isEmpty()) t("本地文件 · 选择文件或文件夹导入","Local files · Import files or a folder") else "‹  $folder",92f,145f,18f,110)
+        label(if (folder.isEmpty()) t("本地文件 · 从右上角菜单导入","Local files · Import from the top-right menu") else "‹  $folder",92f,145f,18f,110)
         if (folder.isNotEmpty()) hit(RectF(72f,105f,width-92,167f), ShelfCommand("up"))
         val entries = items(files, folder); val last = ((entries.size - 1) / 7).coerceAtLeast(0); val selected = page.coerceIn(0,last)
         entries.drop(selected*7).take(7).forEachIndexed { i, entry ->
@@ -45,7 +41,7 @@ internal class FileShelf {
             c.drawLine(92f,top+70,width-92,top+70,line)
             hit(RectF(92f,top,width-92,top+86), ShelfCommand(if (entry.folder) "folder" else "book",entry.id))
         }
-        if (entries.isEmpty()) label(t("此文件夹还没有书籍，点右上角导入。","No books here yet. Choose Import above."),108f,240f,21f,110)
+        if (entries.isEmpty()) label(t("此文件夹还没有书籍，请打开右上角菜单导入。","No books here yet. Open the menu to import."),108f,240f,21f,110)
         val status = notice.ifEmpty { t("TXT / EPUB / MD / HTML / DOCX / 文本 PDF","TXT / EPUB / MD / HTML / DOCX / Text PDF") }
         status.lineSequence().take(3).forEachIndexed { i,value -> label(value,92f,height-152+i*25,17f,110) }
         label("‹",96f,height-61,25f); hit(RectF(72f,height-100,180f,height-24),ShelfCommand("previous"))

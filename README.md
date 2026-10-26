@@ -8,9 +8,9 @@ Paperis 纸墨 是一款专为 Pad 与平板设备打造的极简水墨屏风质
 
 ## 下载
 
-[![下载 Android APK](https://img.shields.io/badge/下载_Android_APK-0.1.0--preview.8-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.8/Paperis-0.1.0-preview.8.apk)
+[![下载 Android APK](https://img.shields.io/badge/下载_Android_APK-0.1.0--preview.9-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.9/Paperis-0.1.0-preview.9.apk)
 
-**[直接下载 Paperis 纸墨 APK](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.8/Paperis-0.1.0-preview.8.apk)** · [查看版本与校验值](https://github.com/dpan538/Paperis/releases)
+**[直接下载 Paperis 纸墨 APK](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.9/Paperis-0.1.0-preview.9.apk)** · [查看版本与校验值](https://github.com/dpan538/Paperis/releases)
 
 Android 13+，面向平板的预览版本，使用项目的预览开发签名。下载后允许浏览器安装应用；已有同签名预览可覆盖升级。小米 Pad 9 Pro Max 的实机验证仍待完成。
 
@@ -23,10 +23,10 @@ Android 13+，面向平板的预览版本，使用项目的预览开发签名。
 
 ## 阅读体验
 
-打开应用，整页即是安静的墨水屏阅读界面。正文、文件列表和省略号菜单共用同一层温润的黑白灰表面。
+打开应用，整页即是安静的墨水屏阅读界面。正文、文件列表和省略号菜单共用同一层温润的黑白灰表面。新安装默认使用白瓷，夜间前光与深色模式关闭；已有模式选择会保留。
 
 - **层次与质感**：微暖纸灰底材、哑光表面、细密颗粒与下沉墨层；柔和的受光随设备姿态轻微变化，可在菜单中关闭。
-- **三种阅读预设**：白瓷呈现细润致密的浅色表面与清晰墨迹；护眼降低视觉对比、增加暖灰漫散射；类纸增加交错纤维般的微结构与墨色沉积差异。护眼为视觉预设。
+- **三种阅读预设**：白瓷呈现细润致密的浅色表面与清晰墨迹；护眼降低视觉对比、保留轻微暖灰漫散射；类纸增加交错纤维般的微结构与墨色沉积差异。护眼为视觉预设。
 - **有节奏的刷新**：翻页保留轻微原位残影；切换预设、书籍或字体经过清除、墨迹沉积与稳定的过程。支持完整刷新，并尊重系统关闭动画的设置。
 - **原生文本重排**：调整字体、字号、行距与横屏单双栏；竖屏自动单栏。重排后尽量保留当前正文位置。
 - **中文排版**：严格标点换行、两端排版、段末孤字回收与跨栏段落保护，减少最后一行只有一个字的情况。
@@ -35,7 +35,7 @@ Android 13+，面向平板的预览版本，使用项目的预览开发签名。
 - **设置**：与阅读菜单相同大小的设置页，支持中文 / English、手动拉取更新与提交反馈。下载和反馈会打开浏览器，由你决定后续操作。
 - **轻量记录**：每本书保存阅读位置，提供目录、进度与简单书签。
 
-点击左右区域、左右滑动或使用音量键翻页。阅读页顶部“＋ 导入”直接进入导入面板；右上角省略号和正文中央可打开阅读菜单；长按正文执行完整刷新。
+点击左右区域、左右滑动或使用音量键翻页。右上角省略号和正文中央可打开阅读菜单；“＋ 导入书籍”固定在主菜单一级，阅读页与文件页共用；长按正文执行完整刷新。
 
 Paperis 使用 Kotlin、原生 Canvas 与 AGSL 实现显示材质。软件模拟不改变平板屏幕的物理发光方式。
 

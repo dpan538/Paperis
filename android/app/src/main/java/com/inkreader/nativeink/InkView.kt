@@ -18,7 +18,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     internal data class Frame(val page: Int, val fontStep: Int, val tools: Boolean, val optical: Boolean = true,
         val spacingStep: Int = 1, val columnMode: Int = 0, val menu: MenuPage = MenuPage.ROOT,
         val draftPage: Int = 0, val bookmarks: List<Int> = emptyList(), val bookmarkListPage: Int = 0,
-        val face: Int = 0, val preset: Int = 2, val library: Boolean = false,
+        val face: Int = 0, val preset: Int = 0, val library: Boolean = false,
         val shelfFolder: String = "", val shelfPage: Int = 0, val notice: String = "", val busy: Boolean = false,
         val english: Boolean = false, val night: Boolean = false, val dark: Boolean = false, val lightStep: Int = 1,
         val updateState: Int = 0, val updateVersion: String = "", val downloadUrl: String = "") {
@@ -52,7 +52,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         preferences.getInt("spacing", 1).coerceIn(spacing.indices), preferences.getInt("columns", 0).coerceIn(0..2),
         bookmarks = preferences.getStringSet("bookmarks", emptySet()).orEmpty().mapNotNull { it.toIntOrNull() }.filter { it in book.indices }.distinct().sorted(),
         face = files.preferences.getInt("face",0).coerceIn(0,if(customFace == null) 1 else 2),
-        preset = files.preferences.getInt("preset",2).coerceIn(0,2), library = files.preferences.getString("lastBook",null) == null,
+        preset = files.preferences.getInt("preset",0).coerceIn(0,2), library = files.preferences.getString("lastBook",null) == null,
         english = files.preferences.getBoolean("english",false), night = files.preferences.getBoolean("night",false),
         dark = files.preferences.getBoolean("dark",false), lightStep = files.preferences.getInt("light",1).coerceIn(0,2))
     private var response = InkResponse(logical)
@@ -69,7 +69,6 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.create("sans-serif", Typeface.NORMAL) }
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(180, 180, 180); strokeWidth = .7f; style = Paint.Style.STROKE }
     private val menuHit = RectF()
-    private val importHit = RectF()
     private val readingMenu = ReadingMenu()
     private var downX = 0f
     private var downY = 0f
@@ -96,7 +95,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     init {
         isFocusable = true; isClickable = true
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
-        setBackgroundColor(Color.rgb(222, 220, 214))
+        setBackgroundColor(Color.rgb(224, 224, 223))
     }
 
     private fun layout(frame: Frame): BookLayout {
@@ -114,7 +113,6 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         logical = logical.copy(page = layout(logical).pageForOffset(savedOffset))
         response = InkResponse(logical)
         menuHit.set(vw - 148f, 22f, vw - 68f, 102f)
-        importHit.set(vw-332f,22f,vw-172f,102f)
         material = InkMaterial().also { it.setInitial(render(logical),logical.appearance) }
     }
 
@@ -133,7 +131,6 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         drawLabel(c, entry.title.take(20), bookLayout.margin, 73f, 18f, 110)
         drawLabel(c, "${(frame.page + 1) * 100 / bookLayout.pages.size}%", vw / 2, 73f, 17f, 120, Paint.Align.CENTER)
         drawMenuIcon(c, vw - 108f, 62f)
-        drawLabel(c, if(frame.english) "+ Import" else "＋ 导入", vw-250f,73f,18f,75,Paint.Align.CENTER)
         bookLayout.draw(c, frame.page)
         val y = vh - 62f
         drawLabel(c, "${frame.page + 1} / ${bookLayout.pages.size}", vw / 2, y, 17f, 110, Paint.Align.CENTER)
@@ -399,7 +396,6 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             menuHit.contains(x, y) -> toggleTools()
             logical.tools && readingMenu.bounds.contains(x, y) -> readingMenu.hit(x, y, model)?.let(::menuCommand)
             logical.tools -> toggleTools()
-            !logical.library && importHit.contains(x,y) -> openMenu(MenuPage.IMPORT)
             logical.library -> shelf.hit(x,y)?.let(::shelfCommand)
             x < vw * .32f -> turnPage(-1)
             x > vw * .68f -> turnPage(1)
@@ -423,8 +419,6 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     private fun shelfCommand(command: ShelfCommand) {
         if(logical.busy) return
         when(command.action) {
-            "import" -> importFiles(false)
-            "tree" -> importFiles(true)
             "folder" -> request(logical.copy(shelfFolder=command.id,shelfPage=0))
             "up" -> request(logical.copy(shelfFolder=logical.shelfFolder.substringBeforeLast('/',""),shelfPage=0))
             "previous" -> shelfPage(-1)
@@ -503,7 +497,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         super.onInitializeAccessibilityNodeInfo(info)
         info.className = "android.widget.TextView"
         info.text = when {
-            logical.library && !logical.tools -> text("文件。导入文件、导入文件夹。","Files. Import files or folders. ") + shelf.items(shelfFiles,logical.shelfFolder).joinToString("。") { it.label }
+            logical.library && !logical.tools -> text("文件。打开右上角菜单可导入书籍。","Files. Open the top-right menu to import books. ") + shelf.items(shelfFiles,logical.shelfFolder).joinToString("。") { it.label }
             layouts.isEmpty() -> "Paperis 纸墨阅读"
             logical.tools -> menuModel(logical).let { model -> model.title + "。" + model.rows.joinToString("。") { it.label + it.controls.joinToString(" ") { c -> c.text } } }
             else -> text("第 ${logical.page + 1} 页，共 $pageCount 页。","Page ${logical.page+1} of $pageCount. ")+layout(logical).pageText(logical.page)
@@ -515,8 +509,6 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         info.addAction(AccessibilityNodeInfo.AccessibilityAction(ACTION_REFRESH, text("清屏","Full refresh")))
         info.addAction(AccessibilityNodeInfo.AccessibilityAction(ACTION_LARGER, text("增大字号","Larger text")))
         info.addAction(AccessibilityNodeInfo.AccessibilityAction(ACTION_SMALLER, text("减小字号","Smaller text")))
-        info.addAction(AccessibilityNodeInfo.AccessibilityAction(ACTION_IMPORT, text("导入书籍","Import books")))
-        if(logical.library) info.addAction(AccessibilityNodeInfo.AccessibilityAction(ACTION_IMPORT_FOLDER,text("导入文件夹","Import folder")))
         if (!reducedMotion) info.addAction(AccessibilityNodeInfo.AccessibilityAction(ACTION_OPTICAL, if (logical.optical) text("关闭倾角光感","Disable pose lighting") else text("开启倾角光感","Enable pose lighting")))
         menuAccessibilityActions().forEachIndexed { index, action ->
             info.addAction(AccessibilityNodeInfo.AccessibilityAction(ACTION_MENU_BASE + index, action.first))
@@ -533,8 +525,6 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             ACTION_LARGER -> changeFont(1)
             ACTION_SMALLER -> changeFont(-1)
             ACTION_OPTICAL -> toggleOptical()
-            ACTION_IMPORT -> if(logical.library) importFiles(false) else openMenu(MenuPage.IMPORT)
-            ACTION_IMPORT_FOLDER -> importFiles(true)
             else -> return super.performAccessibilityAction(action, arguments)
         }
         return true
@@ -546,8 +536,6 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         const val ACTION_LARGER = 0x01000003
         const val ACTION_SMALLER = 0x01000004
         const val ACTION_OPTICAL = 0x01000005
-        const val ACTION_IMPORT = 0x01000006
-        const val ACTION_IMPORT_FOLDER = 0x01000007
         private const val ACTION_MENU_BASE = 0x01000100
     }
 }

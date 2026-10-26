@@ -64,12 +64,17 @@ class ImportEvidence(private val host: Instrumentation,private val pickerOnly:Bo
             false
         }
     }
+    private fun openImportPicker() {
+        tap(3192f,124f);settle()
+        tap(3000f,1168f);settle()
+        tap(3000f,400f)
+    }
     private fun picker() {
             // Verify the actual system picker is reachable, then cancel back to the same local files.
             ui { activity.inkView.showFiles() };settle();capture("08-file-system")
-            tap(2620f,124f)
+            openImportPicker()
             waitFor("system file picker") { uiAutomation.rootInActiveWindow?.packageName?.toString()?.contains("documentsui")==true }
-            verify("Visible import button opens Android's real document picker",true)
+            verify("Persistent menu import opens Android's real document picker",true)
             clickSystemLabel("Show roots");clickSystemLabel("Downloads");clickSystemLabel("InkReader-SAF.txt")
             waitFor("actual picker import") { ui { !activity.inkView.importBusy && activity.inkView.files.list().any { it.name=="InkReader-SAF.txt" } } }
             settle()
@@ -78,7 +83,7 @@ class ImportEvidence(private val host: Instrumentation,private val pickerOnly:Bo
             })
             capture("09-system-picker-import")
             val afterSelection=ui { activity.inkView.files.list().size }
-            tap(2620f,124f)
+            openImportPicker()
             waitFor("picker again") { uiAutomation.rootInActiveWindow?.packageName?.toString()?.contains("documentsui")==true }
             uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
             waitFor("picker cancellation") { uiAutomation.rootInActiveWindow?.packageName?.toString()==targetContext.packageName }
@@ -95,7 +100,7 @@ class ImportEvidence(private val host: Instrumentation,private val pickerOnly:Bo
             settle()
             if(pickerOnly) { picker();return }
             capture("01-files-before")
-            verify("First use opens a native file list with import controls",ui { activity.inkView.libraryOpen })
+            verify("First use opens a native file list with menu-based import",ui { activity.inkView.libraryOpen })
             // Import through the same activity callback, content resolver, bounded copy and worker as the picker.
             val names=listOf("原生导入.txt","中文编码.txt","UTF16.txt","章节顺序.epub","简明笔记.md","文章.html","文本稿.docx","文本.pdf")
             val before=ui { activity.inkView.files.list().size }

@@ -241,8 +241,9 @@ internal class InkMaterial {
                 // Warmth belongs to the light substrate, not colored pigment or colored UI.
                 // Dark ink stays neutral; the small channel spread never becomes a sepia wash.
                 float paperWeight = smoothstep(0.18, 0.78, tone);
-                float warmth = dot(modes,float3(0.35,1.30,1.0)) + night*0.85;
-                float3 paperTone = float3(tone) + float3(0.018, 0.008, -0.016) * paperWeight * warmth;
+                // Keep the default near-neutral; comfort is a small substrate bias, not a yellow overlay.
+                float warmth = dot(modes,float3(0.12,0.65,0.34)) + night*0.10;
+                float3 paperTone = float3(tone) + float3(0.010, 0.004, -0.009) * paperWeight * warmth;
                 return half4(half3(clamp(paperTone, 0.0, 1.0)), 1.0);
             }
         """.trimIndent()

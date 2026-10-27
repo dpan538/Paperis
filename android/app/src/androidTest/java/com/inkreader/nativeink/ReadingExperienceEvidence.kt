@@ -33,9 +33,10 @@ internal class ReadingExperienceEvidence(private val instrumentation: Instrument
             return bitmap
         }
         fun tap(x:Float,y:Float) {
+            val point=ui { activity.inkView.screenPoint(x/2f,y/2f) }
             val now=SystemClock.uptimeMillis()
             for((action,time) in listOf(MotionEvent.ACTION_DOWN to now,MotionEvent.ACTION_UP to now+60)) {
-                val event=MotionEvent.obtain(now,time,action,x,y,0);event.source=android.view.InputDevice.SOURCE_TOUCHSCREEN
+                val event=MotionEvent.obtain(now,time,action,point.x,point.y,0);event.source=android.view.InputDevice.SOURCE_TOUCHSCREEN
                 uiAutomation.injectInputEvent(event,true);event.recycle()
             }
             settle()
@@ -84,8 +85,48 @@ internal class ReadingExperienceEvidence(private val instrumentation: Instrument
             click("Download 0.1.0-preview.999")
             verify("Update download opens the release asset for user review",external?.action==Intent.ACTION_VIEW && external?.data?.host=="github.com" && external?.data?.path?.endsWith(".apk")==true)
             external=null;click("Send feedback")
-            verify("Feedback opens a prefilled issue without submitting it",external?.action==Intent.ACTION_VIEW && external?.data?.path=="/dpan538/Paperis/issues/new" && external?.data?.getQueryParameter("body")?.contains(BuildConfig.VERSION_NAME)==true)
+            verify("Feedback opens a native editor without a browser handoff",ui { activity.feedbackOpen } && external==null)
             removeMonitor(monitor)
+            fun findNative(label:String):android.view.accessibility.AccessibilityNodeInfo? {
+                val queue=java.util.ArrayDeque<android.view.accessibility.AccessibilityNodeInfo>()
+                uiAutomation.rootInActiveWindow?.let { queue.add(it) }
+                while(queue.isNotEmpty()) {
+                    val node=queue.removeFirst()
+                    if(node.contentDescription?.toString()==label || node.text?.toString()==label)return node
+                    for(i in 0 until node.childCount)node.getChild(i)?.let { queue.add(it) }
+                };return null
+            }
+            fun nativeClick(label:String) {
+                val node=checkNotNull(findNative(label)) { "Native control missing: $label" }
+                check(node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK));SystemClock.sleep(250)
+            }
+            val draft="Paperis native feedback draft"
+            val editor=checkNotNull(findNative("Feedback message"))
+            check(editor.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT,Bundle().apply { putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,draft) }))
+            ui { activity.readerFeedback.transport={_,_->503 to JSONObject().put("error","service_unconfigured")} }
+            nativeClick("Send feedback")
+            waitFor("feedback response") { ui { !activity.readerFeedback.busy } }
+            verify("Unavailable feedback preserves the exact draft and reports its status",ui { activity.readerFeedback.draft==draft && activity.readerFeedback.status=="service_unconfigured" })
+            capture("04-native-feedback").recycle()
+            nativeClick("Back")
+            ui { activity.inkView.openMenu(MenuPage.SETTINGS) };settle();click("Send feedback")
+            verify("Reopening feedback restores the saved draft",findNative("Feedback message")?.text?.toString()==draft)
+            var requestCount=0;var marker=""
+            ui { activity.readerFeedback.transport={url,body->
+                requestCount++
+                if(body!=null) {
+                    val digest=java.security.MessageDigest.getInstance("SHA-256").digest((body.getString("body")+'\u0000'+body.getString("version")).toByteArray()).joinToString("") { "%02x".format(it) }
+                    marker="<!-- PAPERIS:${body.getString("requestId")}:$digest -->"
+                    200 to JSONObject().put("accepted",true).put("requestId",body.getString("requestId")).put("receipt","https://github.com/dpan538/Paperis/issues/999999")
+                } else {
+                    check(url=="https://api.github.com/repos/dpan538/Paperis/issues/999999")
+                    200 to JSONObject().put("html_url","https://github.com/dpan538/Paperis/issues/999999").put("body",marker)
+                }
+            } }
+            nativeClick("Send feedback");waitFor("verified receipt") { ui { !activity.readerFeedback.busy } }
+            verify("Feedback clears its draft only after independently verifying the receipt",ui { activity.readerFeedback.status=="received" && activity.readerFeedback.draft.isEmpty() } && requestCount==2)
+            nativeClick("Back")
+            ui { activity.inkView.openMenu(MenuPage.SETTINGS) };settle()
             activity.updateSource={ error("offline fixture") };click("Check for updates")
             waitFor("offline response") { ui { activity.inkView.updateState==4 } };settle()
             verify("An update network failure leaves settings usable with retry",ui { activity.inkView.toolsOpen && activity.inkView.menuPage==MenuPage.SETTINGS })

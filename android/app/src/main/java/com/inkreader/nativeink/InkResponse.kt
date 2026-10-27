@@ -12,12 +12,11 @@ internal class InkResponse<T>(initial: T) {
     var active: Request<T>? = null; private set
     var pending: Request<T>? = null; private set
     var startedAt = 0L; private set
-    var partials = 0; private set
     val duration get() = if (active?.full == true) FULL_MS else PARTIAL_MS
 
     fun offer(value: T, now: Long, full: Boolean = false, instant: Boolean = false): Boolean {
         if (instant) {
-            displayed = value; previous = value; active = null; pending = null; partials = 0
+            displayed = value; previous = value; active = null; pending = null
             return true
         }
         if (active != null) {
@@ -27,11 +26,10 @@ internal class InkResponse<T>(initial: T) {
         }
         if (value == displayed && !full) return false
         previous = displayed
-        val clean = full || partials >= 7
+        val clean = full
         active = Request(value, clean)
         displayed = value
         startedAt = now
-        if (clean) partials = 0 else partials++
         return true
     }
 

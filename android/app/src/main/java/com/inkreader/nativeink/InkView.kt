@@ -1,6 +1,10 @@
 package com.inkreader.nativeink
 
 import android.content.Context
+import android.content.res.Configuration
+import android.graphics.Insets
+import android.util.TypedValue
+import android.view.WindowInsets
 import android.graphics.*
 import android.os.Bundle
 import android.os.SystemClock
@@ -14,20 +18,23 @@ import kotlin.math.abs
 import kotlin.math.min
 
 class InkView @JvmOverloads constructor(context: Context, private val importFiles: (Boolean) -> Unit = {}, private val importFont: () -> Unit = {},
-    private val checkUpdate: () -> Unit = {}, private val external: (String) -> Unit = {}) : View(context) {
+    private val checkUpdate: () -> Unit = {}, private val external: (String) -> Unit = {},
+    private val feedback: () -> Unit = {}) : View(context) {
     internal data class Frame(val page: Int, val fontStep: Int, val tools: Boolean, val optical: Boolean = true,
         val spacingStep: Int = 1, val columnMode: Int = 0, val menu: MenuPage = MenuPage.ROOT,
         val draftPage: Int = 0, val bookmarks: List<Int> = emptyList(), val bookmarkListPage: Int = 0,
         val face: Int = 0, val preset: Int = 0, val library: Boolean = false,
         val shelfFolder: String = "", val shelfPage: Int = 0, val notice: String = "", val busy: Boolean = false,
         val english: Boolean = false, val night: Boolean = false, val dark: Boolean = false, val lightStep: Int = 1,
-        val updateState: Int = 0, val updateVersion: String = "", val downloadUrl: String = "") {
+        val menuScroll: Float = 0f, val updateState: Int = 0, val updateVersion: String = "", val downloadUrl: String = "") {
         val appearance get() = InkAppearance(preset,night,dark,lightStep)
     }
     internal val files = BookFiles(context)
     private var entry = files.get(files.preferences.getString("lastBook", "").orEmpty()) ?: files.demo
     private var preferences = files.reading(entry)
     private var book = files.text(entry)
+    private var structure=files.structure(entry,book)
+    internal val currentStructure get()=structure
     private var customFace = files.customTypeface()
     private val shelf = FileShelf()
     private var shelfFiles = files.list()
@@ -41,6 +48,14 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     internal val darkEnabled get() = logical.dark
     internal val updateState get() = logical.updateState
     internal val menuBounds get() = RectF(readingMenu.bounds)
+    internal val currentViewport get() = viewport
+    internal val anchorOffset get()=savedOffset
+    internal fun screenPoint(x:Float,y:Float)=PointF(viewport?.screenX(x) ?: x,viewport?.screenY(y) ?: y)
+    internal val feedbackPanelBounds:RectF get() {
+        readingMenu.place(vw,vh,menuModel(logical.copy(menu=MenuPage.SETTINGS)))
+        val b=readingMenu.bounds;val a=screenPoint(b.left,b.top);val z=screenPoint(b.right,b.bottom)
+        return RectF(a.x,a.y,z.x,z.y)
+    }
     internal fun text(zh: String, en: String) = if(logical.english) en else zh
     private val fonts = floatArrayOf(28f, 30f, 32f, 34f, 36f)
     private val spacing = floatArrayOf(.40f, .67f, .95f)
@@ -57,6 +72,8 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         dark = files.preferences.getBoolean("dark",false), lightStep = files.preferences.getInt("light",1).coerceIn(0,2))
     private var response = InkResponse(logical)
     private var material: InkMaterial? = null
+    private var viewport:ReaderViewport?=null
+    private var safeInsets=Insets.NONE
     private var scale = 1f
     private var vw = 1704f
     private var vh = 1136f
@@ -66,12 +83,16 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         if (active && !reducedMotion && logical.optical) invalidate()
     }
     private var savedOffset = preferences.getInt("offset", 0)
-    private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.create("sans-serif", Typeface.NORMAL) }
+    private val label = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.create("sans-serif", Typeface.NORMAL) }
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(180, 180, 180); strokeWidth = .7f; style = Paint.Style.STROKE }
     private val menuHit = RectF()
+    private val menuCenterX get()=vw-(vw*.0634f).coerceIn(36f,108f)
+    internal val menuButtonPoint get()=screenPoint(menuCenterX,layout(logical).headerY-11f)
     private val readingMenu = ReadingMenu()
     private var downX = 0f
     private var downY = 0f
+    private var lastY=0f
+    private var menuDragging=false
     private var longPressed = false
     private var gestureCancelled = false
     private val longPress = Runnable { if (!gestureCancelled) { longPressed = true; fullRefresh() } }
@@ -80,6 +101,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     val pageCount get() = if (layouts.isEmpty()) 0 else layout(logical).pages.size
     val toolsOpen get() = logical.tools
     val opticalEnabled get() = logical.optical
+    internal val menuScrollOffset get()=logical.menuScroll
     internal val menuPage get() = logical.menu
     internal val bookmarkOffsets get() = logical.bookmarks
     internal val draftPage get() = logical.draftPage
@@ -96,43 +118,63 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         isFocusable = true; isClickable = true
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
         setBackgroundColor(Color.rgb(224, 224, 223))
+        setOnApplyWindowInsetsListener { _,insets ->
+            val stable=insets.getInsetsIgnoringVisibility(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+            val gestures=insets.getInsets(WindowInsets.Type.mandatorySystemGestures())
+            val next=Insets.of(maxOf(stable.left,gestures.left),stable.top,maxOf(stable.right,gestures.right),maxOf(stable.bottom,gestures.bottom))
+            if(next!=safeInsets) { safeInsets=next;updateViewport() }
+            insets
+        }
     }
 
     private fun layout(frame: Frame): BookLayout {
         val key = LayoutKey(frame.fontStep, frame.spacingStep, frame.columnMode, frame.face)
-        return layouts.getOrPut(key) { BookLayout(book, vw, vh, fonts[key.font], spacing[key.spacing], key.columns, when(key.face) { 1 -> Typeface.create("sans-serif",Typeface.NORMAL); 2 -> customFace ?: Typeface.create("serif",Typeface.NORMAL); else -> Typeface.create("serif",Typeface.NORMAL) }) }
+        return layouts.getOrPut(key) { BookLayout(book, vw, vh, TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP,fonts[key.font],resources.displayMetrics)/scale, spacing[key.spacing], key.columns, when(key.face) { 1 -> Typeface.create("sans-serif",Typeface.NORMAL); 2 -> customFace ?: Typeface.create("serif",Typeface.NORMAL); else -> Typeface.create("serif",Typeface.NORMAL) },structure=structure,imageProvider={files.image(entry,it)},imageSize={files.imageSize(entry,it)}) }
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
-        if (w <= 0 || h <= 0) return
-        if (layouts.isNotEmpty()) savedOffset = currentOffset
-        scale = min(w, h) / 1136f
-        vw = w / scale; vh = h / scale
+        super.onSizeChanged(w,h,oldw,oldh)
+        updateViewport()
+    }
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig);updateViewport()
+    }
+    private fun updateViewport() {
+        if(width<=0 || height<=0) return
+        val next=ReaderViewport.calculate(width,height,resources.displayMetrics.density,resources.configuration.fontScale,
+            safeInsets.left,safeInsets.top,safeInsets.right,safeInsets.bottom)
+        if(next==viewport) return
+        viewport=next;scale=next.density;vw=next.width;vh=next.height
         layouts.clear()
-        logical = logical.copy(page = layout(logical).pageForOffset(savedOffset))
-        response = InkResponse(logical)
-        menuHit.set(vw - 148f, 22f, vw - 68f, 102f)
-        material = InkMaterial().also { it.setInitial(render(logical),logical.appearance) }
+        logical=logical.copy(page=layout(logical).pageForOffset(savedOffset),menuScroll=0f)
+        response=InkResponse(logical)
+        val headerY=layout(logical).headerY-11f
+        menuHit.set(menuCenterX-40f,headerY-40f,menuCenterX+40f,headerY+40f)
+        material=InkMaterial().also { it.setInitial(render(logical),logical.appearance) }
+        invalidate()
     }
 
     private fun render(frame: Frame): Bitmap {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val c = Canvas(bitmap)
         c.drawColor(Color.WHITE)
+        val area=viewport ?: return bitmap
+        c.translate(area.left.toFloat(),area.top.toFloat())
+        c.clipRect(0f,0f,(width-area.left-area.right).toFloat(),(height-area.top-area.bottom).toFloat())
         c.scale(scale, scale)
         val bookLayout = layout(frame)
         if (frame.library) {
             shelf.draw(c,vw,vh,shelfFiles,frame.shelfFolder,frame.shelfPage,frame.notice,frame.busy,frame.english)
-            drawMenuIcon(c,vw-108f,62f)
+            drawMenuIcon(c,menuCenterX,bookLayout.headerY-11f)
             if(frame.tools) drawTools(c,frame)
             return bitmap
         }
-        drawLabel(c, entry.title.take(20), bookLayout.margin, 73f, 18f, 110)
-        drawLabel(c, "${(frame.page + 1) * 100 / bookLayout.pages.size}%", vw / 2, 73f, 17f, 120, Paint.Align.CENTER)
-        drawMenuIcon(c, vw - 108f, 62f)
+        drawLabel(c, entry.title, bookLayout.margin, bookLayout.headerY, 18f, 110,maxWidth=(vw*.33f-bookLayout.margin).coerceAtLeast(48f))
+        val chapter=structure.chapters.lastOrNull {it.offset<=bookLayout.offsetForPage(frame.page)}
+        drawLabel(c,chapter?.title ?: "${(frame.page+1)*100/bookLayout.pages.size}%",vw/2,bookLayout.headerY,16f,120,Paint.Align.CENTER,maxWidth=vw*.30f)
+        drawMenuIcon(c,menuCenterX, bookLayout.headerY-11f)
         bookLayout.draw(c, frame.page)
-        val y = vh - 62f
+        val y = bookLayout.footerY
         drawLabel(c, "${frame.page + 1} / ${bookLayout.pages.size}", vw / 2, y, 17f, 110, Paint.Align.CENTER)
         // Quiet end marks are navigation affordances, not a simulated device bezel.
         drawChevron(c, bookLayout.margin + 5, y - 7, false, frame.page > 0)
@@ -141,9 +183,9 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         return bitmap
     }
 
-    private fun drawLabel(c: Canvas, value: String, x: Float, y: Float, size: Float, gray: Int = 45, align: Paint.Align = Paint.Align.LEFT) {
+    private fun drawLabel(c: Canvas, value: String, x: Float, y: Float, size: Float, gray: Int = 45, align: Paint.Align = Paint.Align.LEFT, maxWidth:Float=Float.POSITIVE_INFINITY) {
         label.textSize = size; label.color = Color.rgb(gray, gray, gray); label.textAlign = align
-        c.drawText(value, x, y, label)
+        c.drawText(if(maxWidth.isFinite())android.text.TextUtils.ellipsize(value,label,maxWidth,android.text.TextUtils.TruncateAt.END).toString() else value, x, y, label)
     }
 
     private fun drawChevron(c: Canvas, x: Float, y: Float, right: Boolean, enabled: Boolean) {
@@ -168,7 +210,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuControl(text, action?.let { cmd(it, value) }, selected)
         val pageRange = bookLayout.pages[frame.page]
         val currentMarked = frame.bookmarks.any { it in pageRange.first().start until pageRange.last().end }
-        return when (frame.menu) {
+        val model=when (frame.menu) {
             MenuPage.ROOT -> MenuModel(t("阅读菜单", "Reading menu"), false, listOf(
                 item(if(frame.library) t("返回阅读", "Resume reading") else t("文件", "Files"), MenuAction.FILES),
                 item(t("阅读排版", "Text & layout"), MenuAction.LAYOUT),
@@ -192,7 +234,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                     5 -> t("暂时没有可下载安装包", "No downloadable release yet")
                     else -> t("手动检查，不会自动安装", "Manual checks; no automatic install")
                 }))
-                add(MenuRow(t("反馈将在浏览器中打开", "Feedback opens in your browser")))
+                add(MenuRow(t("反馈可在应用内填写", "Write feedback inside the app")))
             },10)
             MenuPage.IMPORT -> MenuModel(t("导入书籍", "Import books"),true,listOf(
                 item(t("＋ 从文件选择", "+ Choose files"),MenuAction.IMPORT_FILES),
@@ -210,6 +252,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                     control(t("自定义","Custom"),if(customFace != null) MenuAction.FONT_FACE else null,2,frame.face==2))))
                 add(item(t("导入字体（TTF / OTF / TTC）","Import font (TTF / OTF / TTC)"),MenuAction.FONT_IMPORT))
                 if (vw < vh) add(MenuRow(t("竖屏保持单栏","Portrait uses one column")))
+                else if(bookLayout.columns==1 && frame.columnMode!=1) add(MenuRow(t("当前窗口适合单栏","One column fits this window")))
             })
             MenuPage.PRESETS -> MenuModel(t("阅读预设","Reading surfaces"),true,listOf(
                 MenuRow(t("白瓷","Porcelain"),controls=listOf(control(if(frame.preset==0) t("已选","Selected") else t("选择","Choose"),MenuAction.PRESET,0))),
@@ -221,12 +264,19 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 item(t("清屏刷新","Full refresh"), MenuAction.REFRESH),
                 MenuRow(t("灯光亮度","Light level"),controls=listOf(t("微光","Low"),t("柔和","Soft"),t("明亮","Bright")).mapIndexed { i,title -> control(title,if(frame.night) MenuAction.LIGHT else null,i,frame.night && i==frame.lightStep) }),
                 MenuRow(t("灯光为屏幕内的视觉模拟","Light is a visual simulation"))))
-            MenuPage.NAVIGATION -> MenuModel(t("目录与进度","Contents & progress"), true, listOf(
-                item(book.lineSequence().first(), MenuAction.CHAPTER, 0),
-                MenuRow(t("跳转页码","Page"), controls = listOf(control("−", if (frame.draftPage > 0) MenuAction.DRAFT_DOWN else null),
-                    control("${frame.draftPage + 1}/${bookLayout.pages.size}", null), control("+", if (frame.draftPage < bookLayout.pages.lastIndex) MenuAction.DRAFT_UP else null))),
-                MenuRow("", controls = listOf(0, 25, 50, 75, 100).map { control("$it%", MenuAction.PERCENT, it) }),
-                item(t("前往第 ${frame.draftPage + 1} 页","Go to page ${frame.draftPage + 1}"), MenuAction.GO)))
+            MenuPage.NAVIGATION -> MenuModel(t("目录与进度","Contents & progress"),true,buildList {
+                add(item(t("书籍开头","Beginning"),MenuAction.CHAPTER,0))
+                add(MenuRow(t("跳转页码","Page"),controls=listOf(control("−",if(frame.draftPage>0)MenuAction.DRAFT_DOWN else null),control("${frame.draftPage+1}/${bookLayout.pages.size}",null),control("+",if(frame.draftPage<bookLayout.pages.lastIndex)MenuAction.DRAFT_UP else null))))
+                add(MenuRow("",controls=listOf(0,25,50,75,100).map {control("$it%",MenuAction.PERCENT,it)}))
+                add(item(t("前往第 ${frame.draftPage+1} 页","Go to page ${frame.draftPage+1}"),MenuAction.GO))
+                add(MenuRow(if(structure.chapters.isEmpty())t("未识别到可靠章节标题","No reliable headings detected") else if(structure.directorySource=="epub")t("原书目录 · ${structure.chapters.size} 项","Book contents · ${structure.chapters.size}") else t("自动识别目录 · ${structure.chapters.size} 项","Detected contents · ${structure.chapters.size}")))
+                val offset=bookLayout.offsetForPage(frame.page)
+                val current=structure.chapters.lastOrNull {it.offset<=offset}
+                structure.chapters.forEach {chapter->
+                    val prefix="  ".repeat((chapter.level-1).coerceIn(0,2))+(if(chapter==current)"• " else "")
+                    add(MenuRow(prefix+chapter.title,cmd(MenuAction.CHAPTER,chapter.offset),listOf(control("${bookLayout.pageForOffset(chapter.offset)+1}",MenuAction.CHAPTER,chapter.offset)),64f))
+                }
+            })
             MenuPage.BOOKMARKS -> MenuModel(t("书签","Bookmarks"), true, buildList {
                 add(item(if (currentMarked) t("移除当前页书签","Remove this bookmark") else t("添加当前页书签","Bookmark this page"), MenuAction.BOOKMARK_TOGGLE))
                 if (frame.bookmarks.isEmpty()) add(MenuRow(t("还没有书签","No bookmarks yet")))
@@ -242,11 +292,12 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                     control(t("下一组","Next"), if (listPage < lastListPage) MenuAction.BOOKMARK_NEXT else null))))
             })
         }
+        return model.copy(scroll=frame.menuScroll)
     }
 
     private fun drawTools(c: Canvas, frame: Frame) {
         val model = menuModel(frame)
-        readingMenu.place(vw, model)
+        readingMenu.place(vw,vh, model)
         readingMenu.draw(c, model)
     }
 
@@ -263,7 +314,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuAction.LIGHT -> { request(logical.copy(lightStep=command.value),true); savePreferences() }
             MenuAction.CHECK_UPDATE -> if(logical.updateState!=1) { request(logical.copy(updateState=1)); checkUpdate() }
             MenuAction.DOWNLOAD_UPDATE -> if(logical.downloadUrl.startsWith(ReaderUpdates.RELEASES+"/download/")) external(logical.downloadUrl)
-            MenuAction.FEEDBACK -> external(ReaderUpdates.FEEDBACK + "?body=" + android.net.Uri.encode("Paperis ${BuildConfig.VERSION_NAME}\nAndroid ${android.os.Build.VERSION.RELEASE}\n\n" + text("问题描述与复现步骤：", "Describe the issue and steps to reproduce:")))
+            MenuAction.FEEDBACK -> { request(logical.copy(tools=false));feedback() }
             MenuAction.FONT_IMPORT -> importFont()
             MenuAction.FONT_FACE -> changeLayout(logical.copy(face=command.value))
             MenuAction.PRESETS -> openMenu(MenuPage.PRESETS)
@@ -291,13 +342,17 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         }
     }
 
-    internal fun openMenu(page: MenuPage) { request(logical.copy(tools = true, menu = page, draftPage = logical.page, bookmarkListPage = 0)) }
+    internal fun openMenu(page: MenuPage) { request(logical.copy(tools = true, menu = page, menuScroll=0f, draftPage = logical.page, bookmarkListPage = 0)) }
     fun backFromTools(): Boolean {
         if (!logical.tools) return false
         if (logical.menu == MenuPage.ROOT) toggleTools() else openMenu(MenuPage.ROOT)
         return true
     }
-    internal fun jumpToPage(page: Int) { request(logical.copy(page = page.coerceIn(0, pageCount - 1), tools = false)) }
+    internal fun jumpToPage(page: Int) {
+        val target=page.coerceIn(0,pageCount-1)
+        savedOffset=layout(logical).offsetForPage(target)
+        request(logical.copy(page=target,tools=false))
+    }
     private fun saveBookmarks(offsets: List<Int>) {
         val sorted = offsets.distinct().sorted()
         preferences.edit().putStringSet("bookmarks", sorted.map { it.toString() }.toSet()).apply()
@@ -312,10 +367,11 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     private fun changeLayout(next: Frame) {
         val anchor = currentOffset
         request(next.copy(page = layout(next).pageForOffset(anchor)))
+        savedOffset=anchor
         savePreferences()
     }
     private fun savePreferences() {
-        preferences.edit().putInt("offset", currentOffset).putInt("font", logical.fontStep)
+        preferences.edit().putInt("offset", savedOffset).putInt("font", logical.fontStep)
             .putInt("spacing", logical.spacingStep).putInt("columns", logical.columnMode)
             .putBoolean("optical", logical.optical).apply()
         files.preferences.edit().putInt("face",logical.face).putInt("preset",logical.preset)
@@ -325,7 +381,8 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val now = SystemClock.uptimeMillis()
-        if (response.advance(now)) material?.update(render(response.displayed), response.active?.full == true,response.displayed.appearance)
+        if (response.advance(now)) material?.update(render(response.displayed),response.displayed.appearance)
+        if(response.active==null) material?.settle()
         material?.draw(canvas, response.elapsed(now), response.active != null, response.active?.full == true,
             if (reducedMotion || !logical.optical) 0f else surfaceLight.pose.x, if (reducedMotion || !logical.optical) 0f else surfaceLight.pose.y)
         drawCount++
@@ -334,11 +391,12 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
 
     private fun request(next: Frame, full: Boolean = false) {
         if (material == null) return
+        if(next.page!=logical.page && !next.library) savedOffset=layout(next).offsetForPage(next.page)
         logical = next
         val started = response.offer(next, SystemClock.uptimeMillis(), full, reducedMotion)
         if (started) {
             if (reducedMotion) material?.setInitial(render(next),next.appearance)
-            else material?.update(render(response.displayed), response.active?.full == true,response.displayed.appearance)
+            else material?.update(render(response.displayed),response.displayed.appearance)
         }
         invalidate()
         sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
@@ -351,7 +409,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         if (next != logical.page || logical.tools) request(logical.copy(page = next, tools = false))
     }
 
-    fun toggleTools() { request(logical.copy(tools = !logical.tools, menu = MenuPage.ROOT)) }
+    fun toggleTools() { request(logical.copy(tools = !logical.tools, menu = MenuPage.ROOT,menuScroll=0f)) }
     fun fullRefresh(closeTools: Boolean = false) { request(if (closeTools) logical.copy(tools = false) else logical, true) }
     fun toggleOptical() {
         if (reducedMotion) return
@@ -367,22 +425,34 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        val x = event.x / scale; val y = event.y / scale
+        val x = viewport?.contentX(event.x) ?: event.x; val y = viewport?.contentY(event.y) ?: event.y
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                downX = x; downY = y; longPressed = false; gestureCancelled = false
+                downX = x; downY = y; lastY=y;menuDragging=false; longPressed = false; gestureCancelled = x<0 || y<0 || x>=vw || y>=vh
+                if(gestureCancelled) return false
                 if (!logical.library && !logical.tools && !menuHit.contains(x, y)) postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
                 return true
             }
             MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_CANCEL -> {
                 gestureCancelled = true; removeCallbacks(longPress); return true
             }
-            MotionEvent.ACTION_MOVE -> if (abs(x - downX) > 12 || abs(y - downY) > 12) removeCallbacks(longPress)
+            MotionEvent.ACTION_MOVE -> {
+                if(abs(x-downX)>12 || abs(y-downY)>12) removeCallbacks(longPress)
+                if(logical.tools && abs(y-downY)>12 && abs(y-downY)>abs(x-downX)) {
+                    readingMenu.place(vw,vh,menuModel(logical))
+                    if(readingMenu.bounds.contains(downX,downY)) {
+                        menuDragging=true
+                        val next=(logical.menuScroll+lastY-y).coerceIn(0f,readingMenu.maxScroll)
+                        if(next!=logical.menuScroll) request(logical.copy(menuScroll=next))
+                    }
+                }
+                lastY=y
+            }
             MotionEvent.ACTION_UP -> {
                 removeCallbacks(longPress)
-                if (longPressed || gestureCancelled) return true
+                if (longPressed || gestureCancelled || menuDragging) return true
                 val dx = x - downX; val dy = y - downY
-                if (abs(dx) > 48 && abs(dx) > abs(dy) * 1.3) turnPage(if (dx < 0) 1 else -1)
+                if (!logical.tools && abs(dx) > 48 && abs(dx) > abs(dy) * 1.3) turnPage(if (dx < 0) 1 else -1)
                 else if (abs(dx) < 16 && abs(dy) < 16) { performClick(); tap(x, y) }
             }
         }
@@ -391,7 +461,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
 
     private fun tap(x: Float, y: Float) {
         val model = menuModel(logical)
-        readingMenu.place(vw, model)
+        readingMenu.place(vw,vh, model)
         when {
             menuHit.contains(x, y) -> toggleTools()
             logical.tools && readingMenu.bounds.contains(x, y) -> readingMenu.hit(x, y, model)?.let(::menuCommand)
@@ -409,16 +479,24 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
 
     internal fun showFiles(notice: String = "", busy: Boolean = false) {
         if(!logical.library) savePreferences()
-        if(!busy) shelfFiles=files.list()
+        if(!busy) {
+            shelfFiles=files.list()
+            val updated=files.get(entry.id)
+            if(updated!=null&&updated!=entry) {
+                entry=updated;book=files.text(updated);structure=files.structure(updated,book);savedOffset=preferences.getInt("offset",0);layouts.clear()
+                logical=logical.copy(page=layout(logical).pageForOffset(savedOffset))
+            }
+        }
         request(logical.copy(library=true,tools=false,notice=notice,busy=busy))
     }
     private fun shelfPage(direction: Int) {
-        val last=((shelf.items(shelfFiles,logical.shelfFolder).size-1)/7).coerceAtLeast(0)
+        val last=((shelf.items(shelfFiles,logical.shelfFolder).size-1)/shelf.pageSize(vh)).coerceAtLeast(0)
         request(logical.copy(shelfPage=(logical.shelfPage+direction).coerceIn(0,last)))
     }
     private fun shelfCommand(command: ShelfCommand) {
         if(logical.busy) return
         when(command.action) {
+            "import" -> importFiles(false)
             "folder" -> request(logical.copy(shelfFolder=command.id,shelfPage=0))
             "up" -> request(logical.copy(shelfFolder=logical.shelfFolder.substringBeforeLast('/',""),shelfPage=0))
             "previous" -> shelfPage(-1)
@@ -428,7 +506,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     }
     internal fun openBook(file: BookFile, text: String) {
         savePreferences()
-        entry=file; book=text; preferences=files.reading(file)
+        entry=file; book=text; structure=files.structure(file,text);preferences=files.reading(file)
         savedOffset=preferences.getInt("offset",0)
         logical=logical.copy(page=0,tools=false,library=false,busy=false,notice="",
             fontStep=preferences.getInt("font",logical.fontStep).coerceIn(fonts.indices),
@@ -445,7 +523,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         if(reducedMotion) material?.setInitial(render(logical),logical.appearance)
         else {
             response.offer(logical,SystemClock.uptimeMillis(),true)
-            material?.update(render(logical),true,logical.appearance)
+            material?.update(render(logical),logical.appearance)
         }
         invalidate()
     }
@@ -453,7 +531,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         customFace=files.customTypeface()
         val anchor=currentOffset; layouts.clear()
         val next=logical.copy(face=2,tools=true,library=false,menu=MenuPage.LAYOUT,busy=false)
-        logical=next.copy(page=layout(next).pageForOffset(anchor))
+        logical=next.copy(page=layout(next).pageForOffset(anchor));savedOffset=anchor
         displayRebuiltPage(); savePreferences()
     }
 
@@ -463,7 +541,6 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         active = false; removeCallbacks(longPress)
         surfaceLight.stop()
         if (layouts.isNotEmpty()) {
-            savedOffset = currentOffset
             savePreferences()
         }
         val unfinished = response.active != null

@@ -4,7 +4,7 @@
 
 ## Before you start
 
-主要适配目标为小米 Pad 9 Pro Max（横屏 3408 × 2272、3:2），同时支持竖屏。其他平板请通过独立分支与 PR 适配，并说明设备、Android / 系统版本、分辨率、显示密度、字体缩放与导航方式。
+主要适配目标为小米 Pad 9 Pro Max；3408 × 2272、3:2 是项目参考配置。实际布局使用窗口、密度与安全边距，同时支持竖屏和较窄窗口。其他平板请通过独立分支与 PR 适配，并说明设备、Android / 系统版本、分辨率、显示密度、字体缩放与导航方式。
 
 请保留整屏黑白灰、温润底材、分层墨迹和安静操作的方向。刷新应有明确边界，静止页面不应持续重绘；姿态传感器应在后台停止，系统关闭动画时应减少过渡。新增入口应有实际用途。
 
@@ -45,7 +45,8 @@ Windows 使用 `gradlew.bat`。首次构建需要下载 Gradle 和 Maven 依赖�
 - 格式：编码、EPUB 书脊顺序、DOCX 段落，以及 PDF 文本层与不支持格式的边界。
 - 排版：连续正文不丢失、不重复、不裁切；标点、段末孤字与跨页段落；字体和字号变化后的正文位置。
 - 平板：横竖屏、显示密度、系统边距、触控与菜单；导入字体及缺字回退。
-- 屏幕：三种材质、刷新序列、快速连续操作、静止状态、关闭动画和后台传感器。
+- 屏幕：三种材质、刷新序列、快速连续操作、完成后无旧字残留、静止状态、关闭动画和后台传感器。
+- 反馈：草稿恢复、失败保留、稳定重试标识与回执核验；测试使用模拟传输，不创建真实 Issue。
 - 记录：每本书的阅读位置、重启恢复和简单书签。
 
 项目包含 JVM 单元测试与原生仪器测试。仪器测试会重置阅读偏好并使用固定布局条件，请在专用模拟器或可清空的测试设备上运行。示例中的 `YOUR_TEST_SERIAL` 需替换为测试设备序列号。
@@ -65,16 +66,20 @@ adb -s YOUR_TEST_SERIAL push app/src/androidTest/assets/fixtures/system-picker.t
 adb -s YOUR_TEST_SERIAL shell am instrument -w -e suite imports io.github.dpan538.inkreader.preview.test/com.inkreader.nativeink.InkEvidence
 ```
 
-原生检查按 3408 × 2272、density 320、Android API 36 模拟器编写；系统文件选择步骤当前依赖英文 DocumentsUI，可按设备语言和文件管理器调整测试驱动。测试夹具 Provider 仅在测试 APK 中启用；截图、报告和设备日志保存在本地。PR 可附针对改动的脱敏图片和结果，不要把原始验收目录提交到仓库。
+核心交互检查使用 3408 × 2272、density 320、Android API 36 模拟器；`viewport` 套件另通过 WindowManager 改变实际分辨率、密度和系统字体缩放，并检查系统栏边距与短窗口菜单。该套件会修改并恢复专用测试设备的显示配置；系统文件选择步骤当前依赖英文 DocumentsUI，可按设备语言和文件管理器调整测试驱动。测试夹具 Provider 仅在测试 APK 中启用；截图、报告和设备日志保存在本地。PR 可附针对改动的脱敏图片和结果，不要把原始验收目录提交到仓库。
 
 重排专用测试独立于截图比对，使用人工编写的逐字金样和横竖屏排版矩阵：
 
 ```sh
+adb -s YOUR_TEST_SERIAL shell am instrument -w -e suite structure io.github.dpan538.inkreader.preview.test/com.inkreader.nativeink.InkEvidence
 adb -s YOUR_TEST_SERIAL shell am instrument -w -e suite reflow io.github.dpan538.inkreader.preview.test/com.inkreader.nativeink.InkEvidence
 adb -s YOUR_TEST_SERIAL shell am instrument -w -e suite experience io.github.dpan538.inkreader.preview.test/com.inkreader.nativeink.InkEvidence
+adb -s YOUR_TEST_SERIAL shell am instrument -w -e suite viewport io.github.dpan538.inkreader.preview.test/com.inkreader.nativeink.InkEvidence
 ```
 
-`experience` 覆盖导入入口、设置尺寸、语言切换、更新成功与失败回调、浏览器交接、夜间灯光和深色模式。更新分支使用可控响应，避免把外部网络稳定性当作 UI 测试前提；发布后另行核对真实 GitHub 版本接口。更多边界见 [重排验证](docs/REFLOW_TESTING.md)。
+`experience` 覆盖导入入口、设置尺寸、语言切换、更新成功与失败回调、浏览器下载交接、应用内反馈草稿与回执、夜间灯光和深色模式。更新分支使用可控响应，避免把外部网络稳定性当作 UI 测试前提；发布后另行核对真实 GitHub 版本接口。更多边界见 [重排验证](docs/REFLOW_TESTING.md)。
+
+反馈服务的本地测试与部署配置见 [feedback-service/README.md](feedback-service/README.md)。
 
 ## Commit messages
 

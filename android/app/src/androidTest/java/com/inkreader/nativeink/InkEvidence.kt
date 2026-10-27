@@ -55,9 +55,10 @@ class InkEvidence : Instrumentation() {
         return bitmap
     }
     private fun tap(x: Float, y: Float) {
+        val point=ui { activity.inkView.screenPoint(x/2f,y/2f) }
         val now = SystemClock.uptimeMillis()
-        val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0)
-        val up = MotionEvent.obtain(now, now + 60, MotionEvent.ACTION_UP, x, y, 0)
+        val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, point.x, point.y, 0)
+        val up = MotionEvent.obtain(now, now + 60, MotionEvent.ACTION_UP, point.x, point.y, 0)
         down.source=android.view.InputDevice.SOURCE_TOUCHSCREEN;up.source=android.view.InputDevice.SOURCE_TOUCHSCREEN
         uiAutomation.injectInputEvent(down, true)
         uiAutomation.injectInputEvent(up, true)
@@ -72,6 +73,10 @@ class InkEvidence : Instrumentation() {
     private var extraSuite=""
     override fun onCreate(arguments: Bundle?) { extraSuite=arguments?.getString("suite").orEmpty(); pickerOnly=arguments?.getString("suite")=="picker"; importsSuite=arguments?.getString("suite")=="imports" || pickerOnly; super.onCreate(arguments); start() }
     override fun onStart() {
+        if(extraSuite=="structure") { StructureEvidence(this).run(); return }
+        if(extraSuite=="pdfprobe") { DocumentEvidence(this).run(true); return }
+        if(extraSuite=="documents") { DocumentEvidence(this).run(); return }
+        if(extraSuite=="viewport") { ViewportEvidence(this).run(); return }
         if(extraSuite=="reflow") { ReflowEvidence(this).run(); return }
         if(extraSuite=="experience") { ReadingExperienceEvidence(this).run(); return }
         if(importsSuite) { ImportEvidence(this,pickerOnly).run(); return }
@@ -130,12 +135,7 @@ class InkEvidence : Instrumentation() {
             refreshing.recycle()
             settled()
             val clean = capture("04-full-refresh-clean")
-            val p = IntArray(partial.width * partial.height)
-            val q = IntArray(clean.width * clean.height)
-            partial.getPixels(p, 0, partial.width, 0, 0, partial.width, partial.height)
-            clean.getPixels(q, 0, clean.width, 0, 0, clean.width, clean.height)
-            val cleared = p.indices.count { (q[it] and 255) - (p[it] and 255) >= 5 }
-            record("Full refresh removes spatial residue from previous-page strokes ($cleared pixels)", cleared > 100)
+            record("Every settled page is as clean as an explicit full refresh",partial.sameAs(clean))
             partial.recycle(); clean.recycle()
 
             tap(3192f, 124f); settled()

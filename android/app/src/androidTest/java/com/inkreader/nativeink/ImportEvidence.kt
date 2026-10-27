@@ -30,7 +30,7 @@ class ImportEvidence(private val host: Instrumentation,private val pickerOnly:Bo
     private fun verify(name:String,condition:Boolean) { checks.put(JSONObject().put("check",name).put("passed",condition)); check(condition) { name } }
     private fun waitFor(name:String,condition:()->Boolean) { val end=SystemClock.uptimeMillis()+45000; while(SystemClock.uptimeMillis()<end) { if(condition())return; SystemClock.sleep(80) }; error("Timeout: $name") }
     private fun settle() { waitFor("material") { ui { !activity.inkView.isRefreshing } }; SystemClock.sleep(240) }
-    private fun tap(x:Float,y:Float) { val now=SystemClock.uptimeMillis(); val a=MotionEvent.obtain(now,now,0,x,y,0); val b=MotionEvent.obtain(now,now+50,1,x,y,0); a.source=android.view.InputDevice.SOURCE_TOUCHSCREEN;b.source=android.view.InputDevice.SOURCE_TOUCHSCREEN;uiAutomation.injectInputEvent(a,true);uiAutomation.injectInputEvent(b,true);a.recycle();b.recycle() }
+    private fun tap(x:Float,y:Float) { val p=ui { activity.inkView.screenPoint(x/2f,y/2f) };val now=SystemClock.uptimeMillis(); val a=MotionEvent.obtain(now,now,0,p.x,p.y,0); val b=MotionEvent.obtain(now,now+50,1,p.x,p.y,0); a.source=android.view.InputDevice.SOURCE_TOUCHSCREEN;b.source=android.view.InputDevice.SOURCE_TOUCHSCREEN;uiAutomation.injectInputEvent(a,true);uiAutomation.injectInputEvent(b,true);a.recycle();b.recycle() }
     private fun capture(name:String) {
         val committed=CountDownLatch(1)
         ui { activity.inkView.viewTreeObserver.registerFrameCommitCallback { committed.countDown() }; activity.inkView.invalidate() }
@@ -64,17 +64,13 @@ class ImportEvidence(private val host: Instrumentation,private val pickerOnly:Bo
             false
         }
     }
-    private fun openImportPicker() {
-        tap(3192f,124f);settle()
-        tap(3000f,1168f);settle()
-        tap(3000f,400f)
-    }
+    private fun openImportPicker() { tap(2908f,124f) }
     private fun picker() {
             // Verify the actual system picker is reachable, then cancel back to the same local files.
             ui { activity.inkView.showFiles() };settle();capture("08-file-system")
             openImportPicker()
             waitFor("system file picker") { uiAutomation.rootInActiveWindow?.packageName?.toString()?.contains("documentsui")==true }
-            verify("Persistent menu import opens Android's real document picker",true)
+            verify("Files-window import button opens Android's real document picker",true)
             clickSystemLabel("Show roots");clickSystemLabel("Downloads");clickSystemLabel("InkReader-SAF.txt")
             waitFor("actual picker import") { ui { !activity.inkView.importBusy && activity.inkView.files.list().any { it.name=="InkReader-SAF.txt" } } }
             settle()
@@ -112,7 +108,7 @@ class ImportEvidence(private val host: Instrumentation,private val pickerOnly:Bo
             val store=BookFiles(targetContext)
             verify("Imported index survives a new repository instance",names.all { name -> store.list().any { it.name==name } })
             verify("Chinese GB18030 and UTF16 decode correctly",store.text(files.first { it.name=="中文编码.txt" }).contains("中文正文") && store.text(files.first { it.name=="UTF16.txt" }).contains("双字节文本"))
-            val epub=store.text(files.first { it.name.endsWith(".epub") })
+            val epub=store.text(files.first { it.name=="章节顺序.epub" })
             verify("EPUB follows spine order instead of archive/file-name order",epub.indexOf("FIRST_MARKER") in 0 until epub.indexOf("SECOND_MARKER"))
             val html=store.text(files.first { it.name.endsWith(".html") })
             verify("HTML removes scripts/styles and keeps visible text",!html.contains("BAD_SCRIPT") && html.contains("离线正文"))
@@ -137,7 +133,7 @@ class ImportEvidence(private val host: Instrumentation,private val pickerOnly:Bo
             verify("Imported text reaches the real native reader",ui { !activity.inkView.libraryOpen && activity.inkView.currentBookLayout.text.contains("清晨的光") })
             ui { activity.inkView.turnPage(1); activity.inkView.pause(); activity.inkView.resume() };settle()
             val saved=ui { activity.inkView.currentOffset }
-            val other=files.first { it.name.endsWith(".epub") }
+            val other=files.first { it.name=="章节顺序.epub" }
             ui { activity.inkView.openBook(other,store.text(other)); activity.inkView.openBook(book,store.text(book)) };settle()
             verify("Each imported book keeps its own reading anchor",ui { activity.inkView.currentOffset==saved })
             tap(3192f,124f);settle();tap(3000f,528f);settle()

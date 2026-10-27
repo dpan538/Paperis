@@ -25,19 +25,16 @@ class InkResponseTest {
         display.advance(500)
         assertEquals(2, display.displayed)
         assertTrue(display.active!!.full)
-        assertEquals(0, display.partials)
     }
 
-    @Test fun accumulatedPartialsEventuallyGetAClean() {
-        val display = InkResponse(0)
-        for (page in 1..7) {
-            display.offer(page, page * 2000L)
+    @Test fun ordinaryTurnsNeverForcePeriodicBlackFlashes() {
+        val display=InkResponse(0)
+        for(page in 1..30) {
+            display.offer(page,page*2000L)
             assertFalse(display.active!!.full)
-            display.advance(page * 2000L + InkResponse.PARTIAL_MS)
+            display.advance(page*2000L+InkResponse.PARTIAL_MS)
+            assertNull(display.active)
         }
-        display.offer(8, 16000)
-        assertTrue(display.active!!.full)
-        assertEquals(0, display.partials)
     }
 
     @Test fun reducedMotionImmediatelyClearsEveryPendingFlash() {

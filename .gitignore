@@ -41,3 +41,6 @@ __pycache__/
 ._*
 *.swp
 *.swo
+
+# Vercel link state and pulled environment files
+**/.vercel/

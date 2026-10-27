@@ -21,44 +21,26 @@ internal class InkMaterial {
     }
     private var oldBitmap: Bitmap? = null
     private var nextBitmap: Bitmap? = null
-    private var history: Bitmap? = null
     private var previousAppearance = InkAppearance()
     private var targetAppearance = InkAppearance()
-    private val density = ColorMatrixColorFilter(floatArrayOf(
-        0f,0f,0f,0f,255f,
-        0f,0f,0f,0f,255f,
-        0f,0f,0f,0f,255f,
-        -1f,0f,0f,0f,255f
-    ))
-    private val mask = Paint(Paint.ANTI_ALIAS_FLAG).apply { colorFilter = density }
 
     fun setInitial(bitmap: Bitmap, appearance: InkAppearance = InkAppearance()) {
         previousAppearance = appearance; targetAppearance = appearance
         oldBitmap = bitmap; nextBitmap = bitmap
-        history = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
         bind()
     }
 
-    fun update(bitmap: Bitmap, full: Boolean, appearance: InkAppearance = targetAppearance) {
+    fun update(bitmap: Bitmap, appearance: InkAppearance = targetAppearance) {
         val old = nextBitmap ?: run { setInitial(bitmap,appearance); return }
-        val memory = history ?: return
         oldBitmap = old; nextBitmap = bitmap
         previousAppearance = targetAppearance; targetAppearance = appearance
-        if (full) memory.eraseColor(Color.TRANSPARENT) else {
-            val c = Canvas(memory)
-            // Decay accumulated history, then retain erased ink at its original pixel position.
-            c.drawColor(0x66000000, BlendMode.DST_OUT)
-            val layer = c.saveLayer(null, Paint().apply { alpha = 8 })
-            mask.blendMode = BlendMode.SRC_OVER
-            c.drawBitmap(old, 0f, 0f, mask)
-            mask.blendMode = BlendMode.DST_OUT
-            c.drawBitmap(bitmap, 0f, 0f, mask)
-            c.restoreToCount(layer)
-            // New dark pixels cover older residue rather than receiving a duplicate outline.
-            c.drawBitmap(bitmap, 0f, 0f, mask)
-            mask.blendMode = null
-        }
         bind()
+    }
+
+    fun settle() {
+        if(oldBitmap !== nextBitmap || previousAppearance != targetAppearance) {
+            oldBitmap=nextBitmap;previousAppearance=targetAppearance;bind()
+        }
     }
 
     private fun bind() {
@@ -67,7 +49,6 @@ internal class InkMaterial {
         }
         runtime.setInputBuffer("oldPage", sample(oldBitmap!!))
         runtime.setInputBuffer("newPage", sample(nextBitmap!!))
-        runtime.setInputBuffer("memory", sample(history!!))
     }
 
     fun draw(canvas: Canvas, elapsedMs: Long, active: Boolean, full: Boolean, tiltX: Float, tiltY: Float) {
@@ -89,7 +70,6 @@ internal class InkMaterial {
         private val SOURCE = """
             uniform shader oldPage;
             uniform shader newPage;
-            uniform shader memory;
             uniform shader structure;
             uniform float2 resolution;
             uniform float2 viewPose;
@@ -152,9 +132,7 @@ internal class InkMaterial {
                     else ink = newInk * smoothstep(690.0, 1000.0, t);
                 }
 
-                float history = memory.eval(inkPoint).a;
-                float historyWeight = (active > 0.5 && fullRefresh < 0.5) ? smoothstep(95.0, 430.0, elapsed) : 1.0;
-                ink = clamp(ink + history * historyWeight * (1.0 - ink), 0.0, 1.0);
+                ink = clamp(ink, 0.0, 1.0);
                 // The ink is an underlying pigment plane, separate from the protective surface.
                 float quantized = floor(ink * 15.0 + grain) / 15.0;
                 float cleanCapsules = structure.eval(inkPoint / 0.86 + float2(97.0, 41.0)).b;

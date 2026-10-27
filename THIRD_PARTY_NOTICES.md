@@ -11,6 +11,7 @@ Paperis original source code, documentation and authored examples are licensed u
 | JetBrains Java annotations | Transitive annotations dependency | Apache License 2.0; [source](https://github.com/JetBrains/java-annotations) |
 | JUnit 4.13.2 | JVM tests only | Eclipse Public License 1.0; [license and source](https://github.com/junit-team/junit4/blob/r4.13.2/LICENSE-junit.txt) |
 | Hamcrest Core 1.3 | Transitive JVM test dependency | BSD 3-Clause; [license and source](https://github.com/hamcrest/JavaHamcrest/blob/hamcrest-java-1.3/LICENSE.txt) |
+| Gunicorn 25.3.0 | Feedback service hosting dependency; not included in the APK | [MIT license and source](https://github.com/benoitc/gunicorn/blob/master/LICENSE) |
 
 Gradle distributions and build tools contain additional components with their own notices, supplied with those distributions. The Apache 2.0 text is included in [licenses/Apache-2.0.txt](licenses/Apache-2.0.txt); existing copyright headers in the wrapper scripts are preserved.
 

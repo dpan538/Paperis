@@ -16,18 +16,30 @@ class MainActivity : Activity() {
     private val imports = Executors.newSingleThreadExecutor()
     private var importing = false
     private val updates = Executors.newSingleThreadExecutor()
+    internal lateinit var readerFeedback:ReaderFeedback
+    private var feedbackDialog:FeedbackDialog?=null
+    internal val feedbackOpen get()=feedbackDialog?.isShowing==true
     internal var updateSource: () -> ReaderUpdates.Result = ReaderUpdates::fetch
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setDecorFitsSystemWindows(false)
-        inkView = InkView(this, ::chooseFiles, ::chooseFont, ::checkUpdates, ::openExternal)
+        readerFeedback=ReaderFeedback(applicationContext) { feedbackDialog?.refresh() }
+        inkView = InkView(this, ::chooseFiles, ::chooseFont, ::checkUpdates, ::openExternal, ::openFeedback)
         setContentView(inkView)
         fullscreen()
         onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
             if (!inkView.backFromTools()) { if (!inkView.libraryOpen) inkView.showFiles() else finish() }
         }
         acceptIntent(intent)
+    }
+
+    private fun openFeedback() {
+        if(feedbackDialog?.isShowing==true)return
+        feedbackDialog=FeedbackDialog(this,readerFeedback,inkView.english,inkView.darkEnabled,inkView.feedbackPanelBounds).also { it.show() }
+    }
+    internal fun openFeedbackReceipt(url:String) {
+        if(Regex("https://github\\.com/dpan538/Paperis/issues/[1-9][0-9]*").matches(url))openExternal(url)
     }
 
     private fun checkUpdates() {
@@ -77,11 +89,20 @@ class MainActivity : Activity() {
     internal fun importTree(uri:Uri) { background(inkView.text("正在读取文件夹…","Reading folder…")) { importBatch(treeFiles(uri)) to false } }
     private fun importBatch(documents: List<Pair<Uri,String>>): String {
         var added = 0; var duplicates = 0; val errors = mutableListOf<String>()
-        documents.forEach { (uri,folder) ->
-            runCatching { inkView.files.import(uri,folder) }.onSuccess { if(it) added++ else duplicates++ }
+        var chapterCount=0;var lastProgress=0L
+        documents.forEachIndexed {index,(uri,folder)->
+            val name=runCatching {inkView.files.displayName(uri)}.getOrDefault("文件")
+            fun progress(part:Int,total:Int) {
+                val now=android.os.SystemClock.uptimeMillis()
+                if(part!=1&&part!=total&&now-lastProgress<800)return
+                lastProgress=now
+                val message=inkView.text("正在整理 ${index+1}/${documents.size} · $name\n识别段落与目录 $part / $total","Preparing ${index+1}/${documents.size} · $name\nReading structure $part / $total")
+                runOnUiThread {if(!isDestroyed)inkView.showFiles(message,true)}
+            }
+            runCatching { inkView.files.import(uri,folder,progress=::progress).also {changed->if(changed)chapterCount+=inkView.files.list().firstOrNull {it.name==name}?.chapters?:0} }.onSuccess { if(it) added++ else duplicates++ }
                 .onFailure { errors += "${runCatching { inkView.files.displayName(uri) }.getOrDefault("文件")}：${ReaderErrors.message(it.message,inkView.english)}" }
         }
-        return inkView.text("导入 $added · 已存在 $duplicates · 失败 ${errors.size}","Imported $added · Duplicates $duplicates · Failed ${errors.size}") + errors.firstOrNull()?.let { "\n$it" }.orEmpty()
+        return inkView.text("导入 $added · 已存在 $duplicates · 失败 ${errors.size}\n目录已整理 · $chapterCount 个章节","Imported $added · Duplicates $duplicates · Failed ${errors.size}\nContents prepared · $chapterCount chapters") + errors.firstOrNull()?.let { "\n$it" }.orEmpty()
     }
     private fun treeFiles(tree: Uri): List<Pair<Uri,String>> {
         val result = mutableListOf<Pair<Uri,String>>(); var visited = 0
@@ -119,7 +140,7 @@ class MainActivity : Activity() {
             }
         }
     }
-    override fun onDestroy() { imports.shutdown(); updates.shutdown(); super.onDestroy() }
+    override fun onDestroy() { feedbackDialog?.dismiss();if(::readerFeedback.isInitialized)readerFeedback.close();imports.shutdown(); updates.shutdown(); super.onDestroy() }
 
     private fun fullscreen() {
         window.insetsController?.apply {

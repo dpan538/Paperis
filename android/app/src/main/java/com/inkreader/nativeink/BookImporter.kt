@@ -13,12 +13,12 @@ internal data class ParsedBook(val title:String,val text:String,val format:Strin
 internal object BookImporter {
     const val MAX_BYTES = 64 * 1024 * 1024
     const val MAX_TEXT = 2_000_000
-    val extensions = setOf("txt", "epub", "md", "markdown", "html", "htm", "docx", "pdf")
+    val extensions = setOf("txt", "epub", "md", "markdown", "html", "htm", "docx", "pdf", "cbz", "zip")
 
     fun parse(file:File,name:String,progress:(Int,Int)->Unit={_,_->},context:android.content.Context?=null,workspace:File=File(file.parentFile,file.name+"-assets"),forceOcr:Boolean=false):ParsedBook {
         require(file.length() in 1..MAX_BYTES.toLong()) { "文件为空或超过 64 MB" }
         val extension = name.substringAfterLast('.', "").lowercase()
-        require(extension in extensions) { "暂不支持 .$extension；请选择 TXT、EPUB、MD、HTML、DOCX 或 PDF" }
+        require(extension in extensions) { "暂不支持 .$extension；请选择 TXT、EPUB、CBZ/图片 ZIP 漫画、MD、HTML、DOCX 或 PDF" }
         var title = name.substringBeforeLast('.').ifBlank { "未命名" }
         if(extension=="txt") {
             val body=normalize(decode(file.readBytes()))
@@ -30,6 +30,7 @@ internal object BookImporter {
         }
         val assembly=when(extension) {
             "epub" -> return epub(file,title,progress,workspace)
+            "cbz","zip" -> return ComicArchive.parse(file,title,progress,workspace,extension.uppercase())
             "pdf" -> PdfReflow.read(file,progress,context,workspace,forceOcr)
             "docx" -> docx(file)
             "md","markdown" -> markdownBlocks(decode(file.readBytes()))

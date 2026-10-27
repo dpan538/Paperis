@@ -18,12 +18,14 @@ internal class BookFiles(private val context: Context) {
     private val index = AtomicFile(File(directory, "index.json"))
     val preferences = context.getSharedPreferences("files", Context.MODE_PRIVATE)
     private val entries = mutableListOf<BookFile>()
+    private var cachedBitmapBytes=0L
+    private val bitmapCacheLimit=40L*1024*1024
     private val bitmaps=object:LinkedHashMap<String,android.graphics.Bitmap>(4,.75f,true) {
-        override fun removeEldestEntry(eldest:MutableMap.MutableEntry<String,android.graphics.Bitmap>?)=size>4
+        override fun removeEldestEntry(eldest:MutableMap.MutableEntry<String,android.graphics.Bitmap>?)=false
     }
     init { reload() }
     @Synchronized fun reload() {
-        entries.clear();bitmaps.clear()
+        entries.clear();bitmaps.clear();cachedBitmapBytes=0
         runCatching {
             val array = JSONArray(index.readFully().toString(Charsets.UTF_8))
             repeat(array.length()) {
@@ -46,7 +48,7 @@ internal class BookFiles(private val context: Context) {
         android.graphics.BitmapFactory.decodeFile(File(bundle(entry),"images/$key").path,options)
         return if(options.outWidth in 1..20000&&options.outHeight in 1..20000)options.outWidth to options.outHeight else null
     }
-    fun image(entry:BookFile,key:String):android.graphics.Bitmap? {
+    @Synchronized fun image(entry:BookFile,key:String):android.graphics.Bitmap? {
         if(!key.matches(Regex("[a-f0-9]{64}")))return null
         val id="${entry.id}/$key"
         return bitmaps[id]?:runCatching {
@@ -54,12 +56,17 @@ internal class BookFiles(private val context: Context) {
             val info=android.graphics.BitmapFactory.Options().apply {inJustDecodeBounds=true}
             android.graphics.BitmapFactory.decodeFile(file.path,info)
             require(info.outWidth in 1..20000 && info.outHeight in 1..20000)
-            val options=android.graphics.BitmapFactory.Options().apply {inSampleSize=1;while(maxOf(info.outWidth,info.outHeight)/inSampleSize>1600)inSampleSize*=2}
+            val options=android.graphics.BitmapFactory.Options().apply {inSampleSize=1;while(maxOf(info.outWidth,info.outHeight)/inSampleSize>2200)inSampleSize*=2}
             val source=checkNotNull(android.graphics.BitmapFactory.decodeFile(file.path,options))
-            val gray=android.graphics.Bitmap.createBitmap(source.width,source.height,android.graphics.Bitmap.Config.ARGB_8888)
-            val paint=android.graphics.Paint().apply {colorFilter=android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix().apply {setSaturation(0f)})}
-            android.graphics.Canvas(gray).apply {drawColor(android.graphics.Color.WHITE);drawBitmap(source,0f,0f,paint)};source.recycle()
-            bitmaps[id]=gray;gray
+            val gray=try {InkImage.grayscale16(source)} finally {source.recycle()}
+            if(gray.allocationByteCount<=bitmapCacheLimit) {
+                bitmaps[id]=gray;cachedBitmapBytes+=gray.allocationByteCount
+                val iterator=bitmaps.entries.iterator()
+                while(cachedBitmapBytes>bitmapCacheLimit&&iterator.hasNext()) {
+                    val eldest=iterator.next();iterator.remove();cachedBitmapBytes-=eldest.value.allocationByteCount
+                }
+            }
+            gray
         }.getOrNull()
     }
     fun reading(entry: BookFile) = context.getSharedPreferences(if (entry.id == "sample") "reading" else "book_${entry.id}", Context.MODE_PRIVATE)
@@ -136,7 +143,7 @@ internal class BookFiles(private val context: Context) {
             val at=entries.indexOfFirst {it.id==id};if(at>=0)entries[at]=entry else entries+=entry
             try {writeIndex();committed=true} catch(t:Throwable) {if(at>=0)entries[at]=checkNotNull(existing) else entries.remove(entry);throw t}
             if(oldText!=null&&oldText!=parsed.text)remap(entry,oldText,parsed.text)
-            bitmaps.clear()
+            bitmaps.clear();cachedBitmapBytes=0
             existing?.let {bundle(it)}?.takeIf {it!=target}?.deleteRecursively()
             return entry
         } finally {stage.deleteRecursively();if(!committed)target.deleteRecursively()}

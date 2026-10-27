@@ -25,7 +25,7 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
     val margin = (viewportWidth*.054f).coerceIn(24f,if(viewportWidth>viewportHeight) 92f else 80f)
     // A narrow portrait page always stays single-column; the landscape preference is retained.
     val gutter = (viewportWidth*.052f).coerceIn(24f,88f)
-    val columns = if (viewportWidth > viewportHeight && columnMode != 1 &&
+    val columns = if (!structure.comic && viewportWidth > viewportHeight && columnMode != 1 &&
         viewportWidth-margin*2-gutter >= maxOf(640f,font*20f)) 2 else 1
     val columnWidth = ((viewportWidth - margin * 2 - gutter * (columns - 1)) / columns).toInt()
     // Leave an optical half-em for platform CJK hanging punctuation and glyph overhang.
@@ -48,7 +48,7 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
                     if(block.level==1)setSpan(android.text.style.AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 "subtitle"->{setSpan(RelativeSizeSpan(1.16f),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);setSpan(android.text.style.AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)}
-                "image"->imageSize(block.image)?.let {(w,h)->setSpan(Illustration(w,h,{imageProvider(block.image)},textWidth,(bodyHeight-font*spacing-12).toInt()),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)}
+                "image"->imageSize(block.image)?.let {(w,h)->setSpan(Illustration(w,h,{imageProvider(block.image)},textWidth,(bodyHeight-font*spacing*(if(structure.comic)3 else 1)-12).toInt(),structure.comic),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)}
                 "metadata","caption"->setSpan(RelativeSizeSpan(.88f),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 "quote","verse"->setSpan(LeadingMarginSpan.Standard((font*.8f).toInt()),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 else->{
@@ -93,6 +93,12 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
             }
         }
         layout = if (protectTails) build() else initial
+        if(structure.comic&&structure.blocks.any {it.kind=="image"}) {
+            val imageLines=structure.blocks.filter {it.kind=="image"}.map {layout.getLineForOffset(it.start)}.distinct().sorted()
+            pages=imageLines.map {line->
+                listOf(Column(line,line,layout.getLineStart(line),layout.getLineEnd(line)))
+            }
+        } else {
         val slices = mutableListOf<Column>()
         val headings=structure.blocks.filter {it.kind=="heading"}.map {it to layout.getLineForOffset(it.start)}
         var first = 0
@@ -125,13 +131,14 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
         }
         if(current.isNotEmpty())paged+=current.toList()
         pages=paged
+        }
     }
 
     private class ParagraphGap(private val height:Int):android.text.style.LineHeightSpan {
         override fun chooseHeight(text:CharSequence,start:Int,end:Int,spanstartv:Int,v:Int,fm:Paint.FontMetricsInt) {fm.ascent=-height;fm.descent=0;fm.top=fm.ascent;fm.bottom=0}
     }
-    private class Illustration(sourceWidth:Int,sourceHeight:Int,private val bitmap:()->android.graphics.Bitmap?,private val width:Int,maxHeight:Int):ReplacementSpan() {
-        private val factor=minOf(width.toFloat()/sourceWidth,maxHeight.toFloat()/sourceHeight,1f)
+    private class Illustration(sourceWidth:Int,sourceHeight:Int,private val bitmap:()->android.graphics.Bitmap?,private val width:Int,maxHeight:Int,upscale:Boolean):ReplacementSpan() {
+        private val factor=minOf(width.toFloat()/sourceWidth,maxHeight.toFloat()/sourceHeight,if(upscale)3f else 1f)
         private val w=(sourceWidth*factor).toInt().coerceAtLeast(1);private val h=(sourceHeight*factor).toInt().coerceAtLeast(1)
         private val left=(width-w)/2f
         override fun getSize(paint:Paint,text:CharSequence,start:Int,end:Int,fm:Paint.FontMetricsInt?):Int {
@@ -164,6 +171,15 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
         pages[page.coerceIn(pages.indices)].forEachIndexed { i, slice ->
             canvas.save()
             canvas.translate(margin + i * (columnWidth + gutter), bodyTop)
+            if(structure.comic) {
+                val imageLine=structure.blocks.firstOrNull {it.kind=="image"&&layout.getLineForOffset(it.start) in slice.firstLine..slice.lastLine}?.let {layout.getLineForOffset(it.start)}
+                if(imageLine!=null) {
+                    val top=layout.getLineTop(imageLine);val height=(layout.getLineBottom(imageLine)-top).coerceAtLeast(1)
+                    val y=((bodyHeight-height)/2f).coerceAtLeast(0f)
+                    canvas.clipRect(0f,y,columnWidth.toFloat(),y+height)
+                    canvas.translate(0f,y-top.toFloat());layout.draw(canvas);canvas.restore();return@forEachIndexed
+                }
+            }
             val usedHeight = layout.getLineBottom(slice.lastLine) - layout.getLineTop(slice.firstLine)
             canvas.clipRect(0f, 0f, columnWidth.toFloat(), usedHeight.toFloat())
             canvas.translate(0f, -layout.getLineTop(slice.firstLine).toFloat())

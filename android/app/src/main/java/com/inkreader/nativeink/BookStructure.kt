@@ -5,8 +5,8 @@ import org.json.JSONObject
 
 internal data class BookBlock(val start:Int,val end:Int,val kind:String="body",val level:Int=0,val image:String="",val page:Int=-1)
 internal data class BookChapter(val title:String,val offset:Int,val level:Int=1,val source:String="generated")
-internal data class BookStructure(val blocks:List<BookBlock>,val chapters:List<BookChapter>,val directorySource:String="generated",val repairedBreaks:Int=0,val ocrPages:Int=0,val uncertainLines:Int=0) {
-    fun json()=JSONObject().put("schema",SCHEMA).put("source",directorySource).put("repairedBreaks",repairedBreaks).put("ocrPages",ocrPages).put("uncertainLines",uncertainLines)
+internal data class BookStructure(val blocks:List<BookBlock>,val chapters:List<BookChapter>,val directorySource:String="generated",val repairedBreaks:Int=0,val ocrPages:Int=0,val uncertainLines:Int=0,val comic:Boolean=false) {
+    fun json()=JSONObject().put("schema",SCHEMA).put("source",directorySource).put("repairedBreaks",repairedBreaks).put("ocrPages",ocrPages).put("uncertainLines",uncertainLines).put("comic",comic)
         .put("blocks",JSONArray().apply { blocks.forEach { put(JSONArray(listOf(it.start,it.end,it.kind,it.level,it.image,it.page))) } })
         .put("chapters",JSONArray().apply { chapters.forEach { put(JSONArray(listOf(it.title,it.offset,it.level,it.source))) } })
     companion object {
@@ -18,7 +18,7 @@ internal data class BookStructure(val blocks:List<BookBlock>,val chapters:List<B
             require(blocks.all { it.start>=0 && it.end<=text.length && it.start<it.end })
             val chapters=(0 until c.length()).map {c.getJSONArray(it).let {a->BookChapter(a.getString(0),a.getInt(1),a.getInt(2),a.getString(3))}}
             require(chapters.all {it.offset in text.indices})
-            return BookStructure(blocks,chapters,o.optString("source","generated"),o.optInt("repairedBreaks"),o.optInt("ocrPages"),o.optInt("uncertainLines"))
+            return BookStructure(blocks,chapters,o.optString("source","generated"),o.optInt("repairedBreaks"),o.optInt("ocrPages"),o.optInt("uncertainLines"),o.optBoolean("comic",false))
         }
         fun infer(text:String):BookStructure {
             val blocks=mutableListOf<BookBlock>();var at=0
@@ -69,14 +69,15 @@ internal class BookAssembly {
     var repairedBreaks=0
     var ocrPages=0
     var uncertainLines=0
+    var comic=false
     fun add(block:SourceBlock) { if(block.text.isNotBlank())blocks+=block }
     fun finish(title:String,format:String,nav:List<Triple<String,Pair<Int,Int>,String>> = emptyList()):ParsedBook {
         blocks.filter {it.kind=="body"}.forEach {b->
             val level=ChapterScanner.level(b.text)
             if(level>0){b.kind="heading";b.level=level}else if(TextSemantics.metadata(b.text))b.kind="metadata"
         }
-        val inserted=blocks.firstOrNull()?.text!=title
-        if(inserted) blocks.add(0,SourceBlock(title,"heading",1)) else { blocks[0].kind="heading";blocks[0].level=1 }
+        val inserted=!comic&&blocks.firstOrNull()?.text!=title
+        if(inserted) blocks.add(0,SourceBlock(title,"heading",1)) else if(!comic&&blocks.isNotEmpty()) { blocks[0].kind="heading";blocks[0].level=1 }
         val combined=mutableMapOf<Int,String>()
         if(nav.isEmpty())for((i,b) in blocks.withIndex()) {
             val key=ChapterScanner.key(b.text)
@@ -87,7 +88,7 @@ internal class BookAssembly {
         }
         val text=StringBuilder();val ranges=mutableListOf<BookBlock>();val chapters=mutableListOf<BookChapter>()
         blocks.forEach { b->
-            if(text.isNotEmpty())text.append("\n\n")
+            if(text.isNotEmpty())text.append(if(comic)"\n" else "\n\n")
             val start=text.length;text.append(b.text);ranges+=BookBlock(start,text.length,b.kind,b.level,b.imageKey,b.page)
         }
         nav.forEach { (label,target,source)->
@@ -100,6 +101,6 @@ internal class BookAssembly {
             if(b.kind=="heading"&&b.start>0&&(label.any {it.isLetter()}||blocks[i].explicitHeading&&label.any {it.isDigit()})&&ChapterScanner.key(label)!=ChapterScanner.key(title)&&chapters.none {it.offset==b.start})chapters+=BookChapter(label,b.start,b.level)
         }
         val source=if(chapters.any {it.source=="epub"})if(chapters.any {it.source=="generated"})"mixed" else "epub" else "generated"
-        return ParsedBook(title,text.toString(),format,BookStructure(ranges,chapters.distinctBy {it.offset to ChapterScanner.key(it.title)}.sortedBy {it.offset},source,repairedBreaks,ocrPages,uncertainLines),images)
+        return ParsedBook(title,text.toString(),format,BookStructure(ranges,chapters.distinctBy {it.offset to ChapterScanner.key(it.title)}.sortedBy {it.offset},source,repairedBreaks,ocrPages,uncertainLines,comic),images)
     }
 }

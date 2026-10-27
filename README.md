@@ -8,9 +8,9 @@ Paperis 纸墨 是一款专为 Pad 与平板设备打造的极简水墨屏风质
 
 ## 下载
 
-[![下载 Android APK](https://img.shields.io/badge/下载_Android_APK-0.1.0--preview.12-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.12/Paperis-0.1.0-preview.12.apk)
+[![下载 Android APK](https://img.shields.io/badge/下载_Android_APK-0.1.0--preview.13-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.13/Paperis-0.1.0-preview.13.apk)
 
-**[直接下载 Paperis 纸墨 APK](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.12/Paperis-0.1.0-preview.12.apk)** · [查看版本与校验值](https://github.com/dpan538/Paperis/releases)
+**[直接下载 Paperis 纸墨 APK](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.13/Paperis-0.1.0-preview.13.apk)** · [查看版本与校验值](https://github.com/dpan538/Paperis/releases)
 
 Android 13+，面向平板的预览版本，使用项目的预览开发签名。下载后允许浏览器安装应用；已有同签名预览可覆盖升级。小米 Pad 9 Pro Max 的实机验证仍待完成。
 
@@ -48,11 +48,12 @@ Paperis 使用 Kotlin、原生 Canvas 与 AGSL 实现显示材质。软件模拟
 | --- | --- |
 | TXT | UTF-8、UTF-16、GB18030 编码识别与正文重排 |
 | EPUB | 按书脊顺序保留段落、标题、NCX / EPUB 3 目录和本地位图插图，重新排版 |
+| CBZ / 图片 ZIP | 按文件名中的自然数字顺序逐页阅读；每张图片单独占一页，横屏也不拆成双栏 |
 | Markdown / HTML | 提取可读段落、标题层级与链接文字 |
 | DOCX | 提取段落和标题样式，生成目录 |
 | PDF | Android 15+ 优先提取文本层；扫描页及 Android 13/14 使用随包离线 OCR，支持简体、繁体、英文，恢复段落与目录，并提取灰度插图 |
 
-EPUB 与 PDF 插图按阅读栏宽缩放并以灰度绘制。PDF 使用页面渲染与文字区域分析提取位图和矢量插图；“阅读排版 → 重新排版本书 → 查看 PDF 原页”保留完整原页供核对。复杂表格、公式、竖排、完整 CSS 和固定版式不会被精确重建。加密正文、旧版 DOC、MOBI、AZW 暂不支持。
+彩色 EPUB、CBZ/图片 ZIP 漫画与 PDF 插图在阅读时转换为中性 16 阶灰度，以保留明暗层次并适配单色墨水屏；导入原文件和原始插图会继续以原始格式保存在本机与备份中。漫画按 `page2`、`page10` 这样的自然数字顺序整理，一张漫画图对应一个阅读页。PDF 使用页面渲染与文字区域分析提取位图和矢量插图；“阅读排版 → 重新排版本书 → 查看 PDF 原页”保留完整原页供核对。复杂表格、公式、竖排、完整 CSS 和固定版式不会被精确重建。加密正文、CBR/RAR、旧版 DOC、MOBI、AZW 暂不支持。
 
 自动目录来自原书标题和正文线索，明确区分原始目录与自动识别目录。扫描 PDF 的 OCR 在本机运行，不需要下载模型或上传页面；采用精度优先模型自动识别简繁中文和英文，并保留原文字形与词间空格。模糊扫描、小字、复杂分栏仍可能错字或错序，请结合原页核对。
 

@@ -81,6 +81,7 @@ class InkEvidence : Instrumentation() {
         if(extraSuite=="documents") { DocumentEvidence(this).run(); return }
         if(extraSuite=="viewport") { ViewportEvidence(this).run(); return }
         if(extraSuite=="reflow") { ReflowEvidence(this).run(); return }
+        if(extraSuite=="comics300") { ComicEvidence(this).run(); return }
         if(extraSuite=="experience") { ReadingExperienceEvidence(this).run(); return }
         if(importsSuite) { ImportEvidence(this,pickerOnly).run(); return }
         var failure: String? = null

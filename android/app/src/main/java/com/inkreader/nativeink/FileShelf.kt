@@ -55,7 +55,7 @@ internal class FileShelf {
             hit(RectF(margin,top,width-margin,top+86), ShelfCommand(if (entry.folder) "folder" else "book",entry.id))
         }
         if (entries.isEmpty()) label(t("此文件夹还没有书籍，可从上方导入。","No books here yet. Choose Import above."),margin+16f,listTop(height)+60f,21f,110)
-        val status = notice.ifEmpty { t("TXT / EPUB / MD / HTML / DOCX / 文本 PDF","TXT / EPUB / MD / HTML / DOCX / Text PDF") }
+        val status = notice.ifEmpty { t("TXT / EPUB / CBZ 与图片 ZIP 漫画 / MD / HTML / DOCX / PDF","TXT / EPUB / CBZ and image ZIP comics / MD / HTML / DOCX / PDF") }
         status.lineSequence().take(3).forEachIndexed { i,value -> label(value,margin,height-152+i*25,17f,110) }
         label("‹",96f,height-61,25f); hit(RectF(72f,height-100,180f,height-24),ShelfCommand("previous"))
         label("${selected+1} / ${last+1}",width/2-25,height-62,17f,110)

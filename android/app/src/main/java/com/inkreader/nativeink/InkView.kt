@@ -241,7 +241,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuPage.IMPORT -> MenuModel(t("导入书籍", "Import books"),true,listOf(
                 item(t("＋ 从文件选择", "+ Choose files"),MenuAction.IMPORT_FILES),
                 item(t("＋ 导入整个文件夹", "+ Choose a folder"),MenuAction.IMPORT_FOLDER),
-                MenuRow("TXT · EPUB · MD · HTML"), MenuRow("DOCX · PDF · OCR"),
+                MenuRow("TXT · EPUB · CBZ / 图片 ZIP 漫画"), MenuRow("Markdown · HTML · DOCX · PDF · OCR"),
                 MenuRow(t("可多选，重复文件自动跳过", "Select several; duplicates are skipped")),
                 MenuRow(t("原文件保留在原来的位置", "Your original files stay untouched")),
                 MenuRow(t("单文件最大 64 MiB · 离线识别", "Up to 64 MiB · offline OCR")),

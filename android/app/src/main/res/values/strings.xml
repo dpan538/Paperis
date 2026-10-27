@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Paperis 纸墨</string>
+    <string name="app_name">Paperis</string>
     <string name="feedback_count">%1$d / 1000</string>
 </resources>

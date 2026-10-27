@@ -72,7 +72,7 @@ internal class ViewportEvidence(private val host:Instrumentation) {
                     }
                     verify("Compact menu scrolls without turning the book page",ui {activity.inkView.menuScrollOffset>0 && activity.inkView.toolsOpen})
                     capture("04-menu-scrolled").recycle()
-                    val point=ui {activity.inkView.screenPoint(r.centerX(),r.top+58+9*64+32-activity.inkView.menuScrollOffset)}
+                    val point=ui {activity.inkView.screenPoint(r.centerX(),r.top+58+7*64+32-activity.inkView.menuScrollOffset)}
                     tap(point.x,point.y)
                     verify("Scrolled Settings remains touchable in a short window",ui {activity.inkView.menuPage==MenuPage.SETTINGS})
                 }

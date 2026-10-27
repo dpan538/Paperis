@@ -105,6 +105,11 @@ internal class StructureEvidence(private val host:Instrumentation) {
                     page.canvas.drawText("Another paragraph starts here",26f,130f,paint)
                     page.canvas.drawText("and continues naturally.",10f,150f,paint)
                     page.canvas.drawText("An ellipsis .... stays in prose.",26f,190f,paint)
+                    fun centered(value:String,y:Float){page.canvas.drawText(value,150f-paint.measureText(value)/2f,y,paint)}
+                    centered("A quiet quotation crosses",225f)
+                    centered("a physical line.",245f)
+                    centered("A separate quotation.",280f)
+                    centered("A different thought begins.",300f)
                     page.canvas.drawText("1",280f,390f,paint);doc.finishPage(page);pdf.outputStream().use {doc.writeTo(it)}
                 doc.close()
                 } catch(t:Throwable){doc.close();throw t}
@@ -113,6 +118,8 @@ internal class StructureEvidence(private val host:Instrumentation) {
                 verify("PDF indentation retains a real paragraph boundary",parsed.text.contains("break.\n\nAnother paragraph starts here and continues naturally."))
                 verify("PDF prose with an ellipsis never causes the page to be discarded",parsed.text.contains("An ellipsis .... stays in prose."))
                 verify("PDF marginal page number is excluded from reading text",!parsed.text.endsWith("\n\n1"))
+                verify("An inset centered quotation keeps its physical lines in one paragraph",parsed.text.contains("A quiet quotation crosses a physical line."))
+                verify("Centered paragraphs with a real gap or sentence ending stay separate",parsed.text.contains("line.\n\nA separate quotation.\n\nA different thought begins."))
                 val continuation=File(dir,"contents-continuation.pdf");val tocDoc=PdfDocument()
                 val names=listOf("1. First Chapter","2. Second Chapter","3. Third Chapter","4. Final Chapter, with a long descriptive subtitle")
                 for(i in 0..5) {

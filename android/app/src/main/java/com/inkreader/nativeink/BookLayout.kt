@@ -60,16 +60,18 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
         }
         Regex("\\n\\n").findAll(text).forEach {gap->setSpan(ParagraphGap((font*.62f).toInt()),gap.range.last,gap.range.last+1,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)}
     }
-    private fun build(): StaticLayout = StaticLayout.Builder.obtain(styled, 0, styled.length, paint, textWidth)
+    private fun build(justify:Boolean=false): StaticLayout = StaticLayout.Builder.obtain(styled, 0, styled.length, paint, textWidth)
         .setAlignment(Layout.Alignment.ALIGN_NORMAL)
         .setIncludePad(false)
         .setLineSpacing(font * spacing, 1f)
         .setBreakStrategy(LineBreaker.BREAK_STRATEGY_HIGH_QUALITY)
         .setLineBreakConfig(LineBreakConfig.Builder().setLineBreakStyle(LineBreakConfig.LINE_BREAK_STYLE_STRICT).build())
-        .setJustificationMode(LineBreaker.JUSTIFICATION_MODE_INTER_WORD)
+        .setJustificationMode(if(justify)LineBreaker.JUSTIFICATION_MODE_INTER_WORD else LineBreaker.JUSTIFICATION_MODE_NONE)
         .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
         .build()
     val layout: StaticLayout
+    val spacingDecisions:List<ParagraphSpacing.Decision>
+    private val wordSpacing:FloatArray
     val pages: List<List<Column>>
 
     init {
@@ -93,6 +95,8 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
             }
         }
         layout = if (protectTails) build() else initial
+        val spacingPolicy=ParagraphSpacing.decide(text,structure,layout,font)
+        spacingDecisions=spacingPolicy.decisions;wordSpacing=spacingPolicy.added
         if(structure.comic&&structure.blocks.any {it.kind=="image"}) {
             val imageLines=structure.blocks.filter {it.kind=="image"}.map {layout.getLineForOffset(it.start)}.distinct().sorted()
             pages=imageLines.map {line->
@@ -109,7 +113,7 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
             headings.firstOrNull {(block,line)->block.level<=1&&line>first&&line<=last&&text.substring(layout.getLineStart(first),block.start).isNotBlank()}?.let {last=it.second-1}
             for((block,line) in headings) {
                 if(line !in first..last)continue
-                val body=structure.blocks.firstOrNull {it.start>=block.end&&it.kind !in setOf("heading","subtitle","metadata","caption")}
+                val body=structure.blocks.firstOrNull {it.start>=block.end&&it.kind !in setOf("heading","subtitle","caption")}
                 val after=body?.let {layout.getLineForOffset(it.start)}?:layout.getLineForOffset((block.end-1).coerceAtLeast(block.start))
                 if(line>first&&after+1>last&&layout.getLineBottom(minOf(after+1,layout.lineCount-1))-layout.getLineTop(line)<=bodyHeight){last=line-1;break}
             }
@@ -146,6 +150,7 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
             fm?.apply {ascent=-h;top=ascent;descent=0;bottom=0};return width
         }
         override fun draw(canvas:Canvas,text:CharSequence,start:Int,end:Int,x:Float,top:Int,y:Int,bottom:Int,paint:Paint) {
+            if(canvas is TextDrawProbe.CaptureCanvas)return
             bitmap()?.let {canvas.drawBitmap(it,null,android.graphics.RectF(x+left,y-h.toFloat(),x+left+w,y.toFloat()),Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))}
         }
     }
@@ -168,6 +173,18 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
         return text.substring(spans.first().start, spans.last().end)
     }
 
+    internal fun drawNativeText(canvas:Canvas,first:Int=0,last:Int=layout.lineCount-1) {
+        val nativePaint=layout.paint;val original=nativePaint.wordSpacing
+        try {
+            for(line in first..last) {
+                canvas.save();canvas.clipRect(0f,layout.getLineTop(line).toFloat(),columnWidth.toFloat(),layout.getLineBottom(line).toFloat())
+                (canvas as? TextDrawProbe.CaptureCanvas)?.limit(line)
+                nativePaint.wordSpacing=wordSpacing[line]
+                layout.draw(canvas);canvas.restore()
+            }
+        } finally {nativePaint.wordSpacing=original;(canvas as? TextDrawProbe.CaptureCanvas)?.resetLimit()}
+    }
+
     fun draw(canvas: Canvas, page: Int) {
         pages[page.coerceIn(pages.indices)].forEachIndexed { i, slice ->
             canvas.save()
@@ -184,7 +201,7 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
             val usedHeight = layout.getLineBottom(slice.lastLine) - layout.getLineTop(slice.firstLine)
             canvas.clipRect(0f, 0f, columnWidth.toFloat(), usedHeight.toFloat())
             canvas.translate(0f, -layout.getLineTop(slice.firstLine).toFloat())
-            layout.draw(canvas)
+            drawNativeText(canvas,slice.firstLine,slice.lastLine)
             canvas.restore()
         }
     }

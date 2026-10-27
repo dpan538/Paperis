@@ -85,7 +85,13 @@ internal object PdfReflow {
                 val displayHeading=!metadata&&l.text.length in 2..64&&(l.box.height()>em*1.23f||isolated&&(centered&&TextSemantics.shortChinese(l.text)||TextSemantics.englishTitle(l.text)))
                 val heading=if(recognized>0)recognized else if(displayHeading)1 else 0
                 val prev=previous
-                val indented=l.box.left-left>em*1.15f
+                // A whole quotation may be inset or centered. Its changing left edge is not
+                // a fresh paragraph when typography, alignment and normal leading agree.
+                val insetContinuation=prev!=null&&prev.page==i&&prev.box.left-left>em*1.15f&&l.box.left-left>em*1.15f&&
+                    abs(l.box.height()-prev.box.height())<em*.25f&&l.box.top-prev.box.top<=leading*1.48f&&
+                    (abs(l.box.left-prev.box.left)<em*.5f||abs(l.box.centerX()-prev.box.centerX())<em*.5f)&&
+                    !Regex("[。！？.!?：:；;][”’」』）)]?$").containsMatchIn(prev.text)
+                val indented=l.box.left-left>em*1.15f&&!insetContinuation
                 val gap=prev!=null&&prev.page==i&&l.box.top-prev.box.top>leading*1.48f
                 val shortPrevious=prev!=null&&prev.box.right<right-em*2.5f&&Regex("[。！？.!?：:]?[”’」』）)]?$").find(prev.text)?.value?.any {it in "。！？.!?：:"}==true
                 val crossPage=prev!=null&&prev.page!=i

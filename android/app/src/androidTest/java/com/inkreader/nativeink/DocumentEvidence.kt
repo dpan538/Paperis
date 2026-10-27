@@ -85,6 +85,9 @@ internal class DocumentEvidence(private val host:Instrumentation) {
                     check(b.pages[activity.inkView.currentPage].let {chosen.offset in it.first().start until it.last().end}) {"Wrong TOC destination"}
                     check(slices.all {b.layout.getLineBottom(it.lastLine)-b.layout.getLineTop(it.firstLine)<=b.bodyHeight+.5f}) {"Clipped column: ${file.name}"}
                     for(line in 0 until b.layout.lineCount)check(b.layout.getLineRight(line)<=b.columnWidth+.5f) {"Clipped line $line: ${file.name}: ${b.layout.getLineRight(line)} > ${b.columnWidth}: ${text.substring(b.layout.getLineStart(line),b.layout.getLineEnd(line))}"}
+                    val audit=BookDiagnostics.inspect(ParsedBook(entry.title,text,entry.format,structure),b)
+                    File(out,"$i-audit.json").writeText(JSONObject().put("findings",JSONArray(audit.map {it.json()})).put("spacingDecisions",JSONArray(b.spacingDecisions.map {d->JSONObject().put("block",d.block).put("offset",d.start).put("justified",d.justified).put("reason",d.reason).put("maxSpaceRatio",d.maxSpaceRatio)})).toString(2))
+                    check(audit.none {it.severity=="error"}) {"Book diagnostics failed: ${audit.filter {it.severity=="error"}.map {it.json()}}"}
                     expected?.optJSONObject("chapterBody")?.let {pairs->for(label in pairs.keys()) {
                         val chapter=structure.chapters.single {ChapterScanner.key(it.title)==ChapterScanner.key(label)}
                         val page=b.pageForOffset(chapter.offset);val content=b.pageText(page)
@@ -94,6 +97,12 @@ internal class DocumentEvidence(private val host:Instrumentation) {
                     activity.inkView.openMenu(MenuPage.NAVIGATION)
                 }
                 capture(activity,"$i-contents")
+                expected?.optJSONArray("readingPoints")?.let {points->repeat(points.length()){n->
+                    val at=text.indexOf(points.getString(n));check(at>=0){"Independently supplied reading point is absent: $n"}
+                    ui {activity.inkView.toggleTools();activity.inkView.jumpToPage(activity.inkView.currentBookLayout.pageForOffset(at))}
+                    capture(activity,"$i-point-$n")
+                    if(n+1<points.length())ui {activity.inkView.openMenu(MenuPage.NAVIGATION)}
+                }}
                 results.put(JSONObject().put("file",file.name).put("passed",true).put("chapters",structure.chapters.size).put("source",structure.directorySource).put("repairedBreaks",structure.repairedBreaks))
             }
         }catch(t:Throwable){failure=t.stackTraceToString()}

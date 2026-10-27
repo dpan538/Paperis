@@ -26,8 +26,8 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         val face: Int = 0, val preset: Int = 0, val library: Boolean = false,
         val shelfFolder: String = "", val shelfPage: Int = 0, val notice: String = "", val busy: Boolean = false,
         val english: Boolean = false, val night: Boolean = false, val dark: Boolean = false, val lightStep: Int = 1,
-        val menuScroll: Float = 0f, val update:UpdateUi=UpdateUi(),val updateVersion:String="") {
-        val appearance get() = InkAppearance(preset,night,dark,lightStep)
+        val warmth:Int=2,val brightnessSet:Boolean=false, val menuScroll: Float = 0f, val update:UpdateUi=UpdateUi(),val updateVersion:String="") {
+        val appearance get() = InkAppearance(preset,night,dark,lightStep,warmth)
     }
     internal val files = BookFiles(context)
     private var entry = files.get(files.preferences.getString("lastBook", "").orEmpty()) ?: files.demo
@@ -44,6 +44,9 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     internal val currentPreset get() = logical.preset
     internal val importBusy get() = logical.busy
     internal val english get() = logical.english
+    internal val warmthStep get()=logical.warmth
+    internal val brightnessStep get()=logical.lightStep
+    internal val brightnessOverridden get()=logical.brightnessSet
     internal val nightEnabled get() = logical.night
     internal val darkEnabled get() = logical.dark
     internal val updateState get() = when(logical.update.phase){UpdatePhase.CHECKING->1;UpdatePhase.CURRENT->2;UpdatePhase.AVAILABLE->3;UpdatePhase.ERROR->4;else->0}
@@ -70,7 +73,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         face = files.preferences.getInt("face",0).coerceIn(0,if(customFace == null) 1 else 2),
         preset = files.preferences.getInt("preset",0).coerceIn(0,2), library = files.preferences.getString("lastBook",null) == null,
         english = files.preferences.getBoolean("english",false), night = files.preferences.getBoolean("night",false),
-        dark = files.preferences.getBoolean("dark",false), lightStep = files.preferences.getInt("light",1).coerceIn(0,2))
+        dark = files.preferences.getBoolean("dark",false), lightStep = files.preferences.getInt("light",1).coerceIn(0,2), warmth=files.preferences.getInt("warmth",2).coerceIn(0,4),brightnessSet=files.preferences.getBoolean("brightnessSet",false))
     private var response = InkResponse(logical)
     private var material: InkMaterial? = null
     private var viewport:ReaderViewport?=null
@@ -122,7 +125,8 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         setOnApplyWindowInsetsListener { _,insets ->
             val stable=insets.getInsetsIgnoringVisibility(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
             val gestures=insets.getInsets(WindowInsets.Type.mandatorySystemGestures())
-            val next=Insets.of(maxOf(stable.left,gestures.left),stable.top,maxOf(stable.right,gestures.right),maxOf(stable.bottom,gestures.bottom))
+            val visible=insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+            val next=Insets.of(maxOf(stable.left,gestures.left),stable.top,maxOf(stable.right,gestures.right),visible.bottom)
             if(next!=safeInsets) { safeInsets=next;updateViewport() }
             insets
         }
@@ -211,16 +215,19 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuControl(text, action?.let { cmd(it, value) }, selected)
         val pageRange = bookLayout.pages[frame.page]
         val currentMarked = frame.bookmarks.any { it in pageRange.first().start until pageRange.last().end }
+        val rootRows=if(LibraryWork.active)9 else 8
         val model=when (frame.menu) {
-            MenuPage.ROOT -> MenuModel(t("阅读菜单", "Reading menu"), false, listOf(
-                if(LibraryWork.active)item(t("暂停整理并保留进度", "Pause and keep progress"),MenuAction.PAUSE) else item(if(frame.library) t("返回阅读", "Resume reading") else t("文件", "Files"), MenuAction.FILES),
-                item(t("阅读排版", "Text & layout"), MenuAction.LAYOUT),
-                item(t("阅读预设", "Reading surfaces"), MenuAction.PRESETS), item(t("目录与进度", "Contents & progress"), MenuAction.NAVIGATION),
-                item(t("书签 · ${frame.bookmarks.size}", "Bookmarks · ${frame.bookmarks.size}"), MenuAction.BOOKMARKS),
-                item(t("屏幕与刷新", "Screen & refresh"), MenuAction.SCREEN), item(t("＋ 导入书籍", "+ Import books"), MenuAction.IMPORT),
-                MenuRow(t("夜间模式", "Night light"), controls=listOf(control(if(frame.night) t("开启", "On") else t("关闭", "Off"),MenuAction.NIGHT))),
-                MenuRow(t("深色模式", "Dark mode"), controls=listOf(control(if(frame.dark) t("开启", "On") else t("关闭", "Off"),MenuAction.DARK))),
-                item(t("设置", "Settings"), MenuAction.SETTINGS)), 10)
+            MenuPage.ROOT -> MenuModel(t("阅读菜单", "Reading menu"), false, buildList {
+                add(item(if(frame.library)t("返回阅读", "Resume reading")else t("文件", "Files"),MenuAction.FILES))
+                add(item(t("目录与进度", "Contents & progress"),MenuAction.NAVIGATION))
+                add(item(t("＋ 导入书籍", "+ Import books"),MenuAction.IMPORT))
+                add(item(t("阅读排版", "Text & layout"),MenuAction.LAYOUT))
+                add(item(t("阅读预设", "Reading presets"),MenuAction.PRESETS))
+                add(item(t("屏幕与刷新", "Screen & refresh"),MenuAction.SCREEN))
+                add(item(t("书签 · ${frame.bookmarks.size}", "Bookmarks · ${frame.bookmarks.size}"),MenuAction.BOOKMARKS))
+                add(item(t("设置", "Settings"),MenuAction.SETTINGS))
+                if(LibraryWork.active)add(item(t("暂停整理并保留进度", "Pause and keep progress"),MenuAction.PAUSE))
+            },rootRows)
             MenuPage.SETTINGS -> MenuModel(t("设置", "Settings"),true,buildList {
                 add(MenuRow(t("语言", "Language"),controls=listOf(control("中文",MenuAction.LANGUAGE,0,!frame.english),control("English",MenuAction.LANGUAGE,1,frame.english))))
                 add(item(t("拉取更新", "Check for updates"),MenuAction.CHECK_UPDATE))
@@ -228,7 +235,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 add(item(t("保存与备份", "Storage & backup"),MenuAction.STORAGE))
                 if(LibraryWork.pending(context))add(item(t("继续上次整理", "Resume unfinished work"),MenuAction.RESUME))
                 add(MenuRow("Paperis ${BuildConfig.VERSION_NAME}"))
-            },10)
+            },rootRows)
             MenuPage.UPDATE -> MenuModel(t("应用更新", "App updates"),true,buildList {
                 val u=frame.update
                 add(MenuRow(t("当前版本", "Installed")+" · "+BuildConfig.VERSION_NAME))
@@ -250,7 +257,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 if(u.phase==UpdatePhase.ERROR)add(MenuRow(t("请检查网络或稍后重试","Check your connection and retry")))
                 if(u.message.contains("permission",true))add(MenuRow(t("请允许安装后返回此页面", "Allow installs, then return here")))
                 add(MenuRow(t("下载完成后打开系统安装确认", "Android confirms installation after download")))
-            },10)
+            },rootRows)
             MenuPage.IMPORT -> MenuModel(t("导入书籍", "Import books"),true,listOf(
                 item(t("＋ 从文件选择", "+ Choose files"),MenuAction.IMPORT_FILES),
                 item(t("＋ 导入整个文件夹", "+ Choose a folder"),MenuAction.IMPORT_FOLDER),
@@ -297,16 +304,18 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 if (vw < vh) add(MenuRow(t("竖屏保持单栏","Portrait uses one column")))
                 else if(bookLayout.columns==1 && frame.columnMode!=1) add(MenuRow(t("当前窗口适合单栏","One column fits this window")))
             })
-            MenuPage.PRESETS -> MenuModel(t("阅读预设","Reading surfaces"),true,listOf(
-                MenuRow(t("白瓷","Porcelain"),controls=listOf(control(if(frame.preset==0) t("已选","Selected") else t("选择","Choose"),MenuAction.PRESET,0))),
-                MenuRow(t("护眼","Gentle"),controls=listOf(control(if(frame.preset==1) t("已选","Selected") else t("选择","Choose"),MenuAction.PRESET,1))),
-                MenuRow(t("类纸","Paper"),controls=listOf(control(if(frame.preset==2) t("已选","Selected") else t("选择","Choose"),MenuAction.PRESET,2))),
-                MenuRow(t("白瓷细润 · 护眼柔和 · 类纸纤维","Smooth · Soft · Fibrous"))))
+            MenuPage.PRESETS -> MenuModel(t("阅读预设","Reading presets"),true,listOf(
+                MenuRow(t("白瓷","Porcelain"),controls=listOf(control(if(frame.preset==0)t("已选","Selected")else t("选择","Choose"),MenuAction.PRESET,0))),
+                MenuRow(t("护眼","Gentle"),controls=listOf(control(if(frame.preset==1)t("已选","Selected")else t("选择","Choose"),MenuAction.PRESET,1))),
+                MenuRow(t("类纸","Paper"),controls=listOf(control(if(frame.preset==2)t("已选","Selected")else t("选择","Choose"),MenuAction.PRESET,2))),
+                MenuRow(t("冷暖","Tone"),controls=listOf(t("冷","Cool"),t("微冷","Cooler"),t("中性","Neutral"),t("微暖","Warmer"),t("暖","Warm")).mapIndexed {i,title->control(title,MenuAction.WARMTH,i,i==frame.warmth)},controlsWidth=300f),
+                MenuRow(t("屏幕亮度","Brightness"),controls=listOf(control(t("低","Low"),MenuAction.LIGHT,0,frame.brightnessSet&&frame.lightStep==0),control(t("中","Mid"),MenuAction.LIGHT,1,frame.brightnessSet&&frame.lightStep==1),control(t("高","High"),MenuAction.LIGHT,2,frame.brightnessSet&&frame.lightStep==2),control(t("系统","Auto"),MenuAction.LIGHT,-1,!frame.brightnessSet))),
+                MenuRow(t("夜间模式","Night light"),controls=listOf(control(if(frame.night)t("开启","On")else t("关闭","Off"),MenuAction.NIGHT))),
+                MenuRow(t("深色模式","Dark mode"),controls=listOf(control(if(frame.dark)t("开启","On")else t("关闭","Off"),MenuAction.DARK))),
+                MenuRow(t("三种材质 · 五档冷暖 · 三档亮度","3 surfaces · 5 tones · 3 light levels"))),rootRows)
             MenuPage.SCREEN -> MenuModel(t("屏幕与刷新","Screen & refresh"), true, listOf(
-                MenuRow(t("倾角光感","Pose lighting"), controls = listOf(control(if (reducedMotion) t("随系统关闭","Reduced") else if (frame.optical) t("开启","On") else t("关闭","Off"), if (reducedMotion) null else MenuAction.OPTICAL))),
-                item(t("清屏刷新","Full refresh"), MenuAction.REFRESH),
-                MenuRow(t("灯光亮度","Light level"),controls=listOf(t("微光","Low"),t("柔和","Soft"),t("明亮","Bright")).mapIndexed { i,title -> control(title,if(frame.night) MenuAction.LIGHT else null,i,frame.night && i==frame.lightStep) }),
-                MenuRow(t("灯光为屏幕内的视觉模拟","Light is a visual simulation"))))
+                MenuRow(t("倾角光感","Pose lighting"), controls=listOf(control(if(reducedMotion)t("随系统关闭","Reduced")else if(frame.optical)t("开启","On")else t("关闭","Off"),if(reducedMotion)null else MenuAction.OPTICAL))),
+                item(t("清屏刷新","Full refresh"),MenuAction.REFRESH)))
             MenuPage.NAVIGATION -> MenuModel(t("目录与进度","Contents & progress"),true,buildList {
                 add(item(t("书籍开头","Beginning"),MenuAction.CHAPTER,0))
                 add(MenuRow(t("跳转页码","Page"),controls=listOf(control("−",if(frame.draftPage>0)MenuAction.DRAFT_DOWN else null),control("${frame.draftPage+1}/${bookLayout.pages.size}",null),control("+",if(frame.draftPage<bookLayout.pages.lastIndex)MenuAction.DRAFT_UP else null))))
@@ -364,7 +373,8 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuAction.LANGUAGE -> { request(logical.copy(english=command.value==1),true); savePreferences() }
             MenuAction.NIGHT -> { request(logical.copy(night=!logical.night),true); savePreferences() }
             MenuAction.DARK -> { request(logical.copy(dark=!logical.dark),true); savePreferences() }
-            MenuAction.LIGHT -> { request(logical.copy(lightStep=command.value),true); savePreferences() }
+            MenuAction.LIGHT -> { request(logical.copy(lightStep=command.value.coerceIn(0,2),brightnessSet=command.value>=0),true); applyBrightness();savePreferences() }
+            MenuAction.WARMTH -> {request(logical.copy(warmth=command.value.coerceIn(0,4)),true);savePreferences()}
             MenuAction.CHECK_UPDATE -> { openMenu(MenuPage.UPDATE);checkUpdate() }
             MenuAction.DOWNLOAD_UPDATE -> updateAction("download")
             MenuAction.INSTALL_UPDATE -> updateAction("install")
@@ -435,7 +445,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             .putInt("spacing", logical.spacingStep).putInt("columns", logical.columnMode)
             .putBoolean("optical", logical.optical).apply()
         files.preferences.edit().putInt("face",logical.face).putInt("preset",logical.preset)
-            .putBoolean("english",logical.english).putBoolean("night",logical.night).putBoolean("dark",logical.dark).putInt("light",logical.lightStep).apply()
+            .putBoolean("english",logical.english).putBoolean("night",logical.night).putBoolean("dark",logical.dark).putInt("light",logical.lightStep).putInt("warmth",logical.warmth).putBoolean("brightnessSet",logical.brightnessSet).apply()
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -460,6 +470,10 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         }
         invalidate()
         sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
+    }
+
+    private fun applyBrightness() {
+        (context as? android.app.Activity)?.window?.let {window->val attributes=window.attributes;attributes.screenBrightness=if(logical.brightnessSet)floatArrayOf(.28f,.60f,1f)[logical.lightStep]else -1f;window.attributes=attributes}
     }
 
     fun turnPage(direction: Int) {
@@ -621,6 +635,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     }
 
     fun resume() {
+        applyBrightness()
         active = true
         val previousReducedMotion = reducedMotion
         reducedMotion = Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f

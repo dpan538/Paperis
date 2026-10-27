@@ -60,11 +60,12 @@ internal class BackupExperienceEvidence(private val host:Instrumentation) {
             verify("Manual reprocessing resumes reading without launching a file picker",ui {!activity.inkView.libraryOpen&&activity.inkView.files.get(file.id)?.bundle!=file.bundle}&&uiAutomation.rootInActiveWindow?.packageName?.toString()==targetContext.packageName)
             ui {activity.inkView.performAccessibilityAction(InkView.ACTION_TOOLS,null)};settle();command("设置");command("保存与备份");capture(out,"02-storage-menu.png")
             val existingTree=LibraryBackup(targetContext,activity.inkView.files).tree
+            val backupStarted=System.currentTimeMillis()
             command("选择本地备份文件夹")
             waitFor("system tree picker"){uiAutomation.rootInActiveWindow?.packageName?.toString()?.contains("documentsui")==true}
             if(existingTree==null){click("Download");click("Paperis-Backup-Test")}
             click("Use this folder");click("Allow")
-            waitFor("backup service",120000){!LibraryWork.active&&LibraryBackup(targetContext,activity.inkView.files).tree!=null};settle()
+            waitFor("fresh completed backup",120000){!LibraryWork.active&&!LibraryWork.pending(targetContext)&&ui {!activity.inkView.importBusy}&&LibraryBackup(targetContext,activity.inkView.files).let {it.tree!=null&&it.preferences.getLong("lastSuccess",0)>=backupStarted}};settle()
             val backup=LibraryBackup(targetContext,activity.inkView.files);val tree=checkNotNull(backup.tree)
             verify("Folder selection persists real read/write access beyond the activity",targetContext.contentResolver.persistedUriPermissions.any {it.uri==tree&&it.isReadPermission&&it.isWritePermission})
             verify("Automatic first backup verifies complete provider copies",backup.preferences.getLong("lastSuccess",0)>0&&!backup.preferences.contains("error"))
@@ -80,7 +81,7 @@ internal class BackupExperienceEvidence(private val host:Instrumentation) {
                 val page=document.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(450,600,index+1).create());page.canvas.drawBitmap(bitmap,null,Rect(0,0,450,600),null);document.finishPage(page);bitmap.recycle()
             };scan.outputStream().use {document.writeTo(it)};document.close()
             ui {activity.importUris(listOf(Uri.fromFile(scan)))}
-            waitFor("scan journal"){LibraryWork.pending(targetContext)&&LibraryWork.active}
+            waitFor("scan import journal"){LibraryWork.active&&runCatching {JSONObject(LibraryWork.journal(targetContext).readText()).let {it.optString("kind")=="import"&&it.optJSONArray("items")?.length()==1}}.getOrDefault(false)}
             val jobs=File(targetContext.filesDir,"import-jobs")
             val staged=JSONObject(LibraryWork.journal(targetContext).readText()).getJSONArray("items").getJSONObject(0)
             val scanJob=File(jobs,BookFiles.hashBytes((staged.getString("uri")+scan.name).toByteArray()))

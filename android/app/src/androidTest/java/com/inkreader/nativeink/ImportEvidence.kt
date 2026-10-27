@@ -137,7 +137,7 @@ class ImportEvidence(private val host: Instrumentation,private val pickerOnly:Bo
             val other=files.first { it.name=="章节顺序.epub" }
             ui { activity.inkView.openBook(other,store.text(other)); activity.inkView.openBook(book,store.text(book)) };settle()
             verify("Each imported book keeps its own reading anchor",ui { activity.inkView.currentOffset==saved })
-            tap(3192f,124f);settle();tap(3000f,528f);settle()
+            ui {activity.inkView.openMenu(MenuPage.LAYOUT)};settle()
             val anchor=ui { activity.inkView.currentOffset }
             tap(2996f,784f);settle()
             verify("Visible font control selects a real sans face",ui { activity.inkView.currentFace==1 && activity.inkView.currentBookLayout.face==Typeface.create("sans-serif",Typeface.NORMAL) })
@@ -147,7 +147,7 @@ class ImportEvidence(private val host: Instrumentation,private val pickerOnly:Bo
             ui { activity.inkView.files.importFont(fixture("fixture-font.ttf"));activity.inkView.fontImported() };settle()
             verify("An imported font is validated and selectable",ui { activity.inkView.currentFace==2 && activity.inkView.files.customTypeface()!=null })
             capture("05-custom-font")
-            ui { activity.inkView.backFromTools() };settle();tap(3000f,656f);settle()
+            ui { activity.inkView.backFromTools() };settle();ui {activity.inkView.openMenu(MenuPage.PRESETS)};settle()
             tap(3000f,528f);settle();verify("Gentle preset changes the native material",ui { activity.inkView.currentPreset==1 });capture("06-gentle-preset")
             tap(3000f,656f);settle();verify("Paper preset is selectable and persisted",ui { activity.inkView.currentPreset==2 && activity.inkView.files.preferences.getInt("preset",-1)==2 });capture("07-paper-preset")
             // Broad native shape/layout sweep, including CJK punctuation and deliberately bad paragraph tails.

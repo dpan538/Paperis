@@ -16,8 +16,10 @@ internal object StructuredHtml {
         fun font(tag:String)=Regex("font-size\\s*:\\s*([0-9.]+)em").find(style(tag))?.groupValues?.get(1)?.toFloatOrNull()?:1f
         val fonts=mutableListOf<Float>();val weights=mutableListOf<Boolean>();var blockFont=1f;var large=0;var total=0;var largest=1f;var skipped=0
         fun flush() {
-            var t=plain(buffer.toString()).replace('\u00a0',' ').replace(Regex(if(kind=="verse")"[\\t ]+" else "[\\t\\r\\n ]+")," ").trim(' ','　','\n')
+            val content=if(kind=="verse")buffer.toString().replace("\n","<br>") else buffer.toString()
+            var t=plain(content).replace('\u00a0',' ').replace(Regex(if(kind=="verse")"[\\t ]+" else "[\\t\\r\\n ]+")," ").trim(' ','　','\n')
             if(pdfConverted)t=t.replace(Regex("(?<=[\\p{IsHan}]) +(?=[\\p{IsHan}])"),"")
+            if(TextSemantics.metadata(t))t=TextSemantics.canonicalFields(t)
             if(t.isNotBlank()) {
                 val detected=if(kind=="body")ChapterScanner.level(t) else 0
                 if(kind=="body"&&t.length<=80&&large>0&&large>=total*.6f){kind="heading";level=if(largest>=1.6f)1 else 2}
@@ -25,7 +27,7 @@ internal object StructuredHtml {
                     if(TextSemantics.metadata(t))kind="metadata"
                     else if(t.length<=80&&(centered||bold>=total*.8f)&&(TextSemantics.englishTitle(t)||TextSemantics.shortChinese(t))){kind="heading";level=2}
                 }
-                result+=SourceBlock(t,if(detected>0)"heading" else kind,if(detected>0)detected else level,pending.toMutableList(),continuation,explicitHeading=explicitHeading,navigationTarget=if(total>0&&linked>=total*.9f&&targets.size==1)targets.single() else "")
+                result+=SourceBlock(t,if(detected>0)"heading" else kind,if(detected>0)detected else level,pending.toMutableList(),continuation,explicitHeading=explicitHeading,navigationTarget=if(total>0&&linked>=total*.9f&&targets.size==1)targets.single() else "",origin=pending.firstOrNull()?:path)
                 pending.clear()
             }
             buffer.clear();kind="body";level=0;continuation=false;large=0;total=0;largest=1f;blockFont=1f;centered=false;bold=0;explicitHeading=false;linked=0;targets.clear()

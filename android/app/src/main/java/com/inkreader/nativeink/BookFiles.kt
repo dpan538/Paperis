@@ -129,13 +129,19 @@ internal class BookFiles(private val context: Context) {
     }
     private fun legacyReflow(value:String,title:String,format:String):ParsedBook {
         val out=BookAssembly()
-        LegacyBookRepair.lines(value).forEach {line->
-            val t=line.trim();val level=ChapterScanner.level(t);val metadata=TextSemantics.metadata(t)
-            if(t.matches(Regex("[一二三四五六七八九十百零〇0-9IVXLCDMivxlcdm]{1,8}"))) {out.add(SourceBlock(t,"subtitle"));return@forEach}
+        val pieces=LegacyBookRepair.pieces(value)
+        pieces.forEachIndexed {index,piece->
+            val line=piece.text
+            val raw=line.trim();val t=if(TextSemantics.metadata(raw))TextSemantics.canonicalFields(raw)else raw;val known=ChapterScanner.level(t)
+            val standalone=piece.hardBreakBefore&&pieces.getOrNull(index+1)?.hardBreakBefore==true
+            val level=if(known>0)known else if(t in setOf("版权信息","版權資訊","Copyright Information"))2 else if(standalone&&TextSemantics.englishTitle(t)&&(pieces.getOrNull(index+1)?.text?.length?:0)>=40)2 else 0
+            val metadata=TextSemantics.metadata(t)
+            if(t.matches(Regex("[一二三四五六七八九十百零〇0-9IVXLCDMivxlcdm]{1,8}"))) {out.add(SourceBlock(t,"subtitle"));return@forEachIndexed}
             val prev=out.blocks.lastOrNull()
-            if(level==0&&!metadata&&prev?.kind=="body"&&prev.text.last() !in "。！？.!?：:”’」』"&&t.length>2) {
-                prev.text=BookImporter.joinProse(prev.text,t);out.repairedBreaks++
-            } else out.add(SourceBlock(t,if(level>0||t==title)"heading" else if(metadata)"metadata" else "body",if(t==title)1 else level))
+            if(!piece.hardBreakBefore&&level==0&&!metadata&&prev?.kind=="body") {
+                if(format=="PDF"&&LegacyBookRepair.probablePdfWrap(pieces.getOrNull(index-1)?.text.orEmpty(),t)) {prev.text=BookImporter.joinProse(prev.text,t);out.repairedBreaks++}
+                else prev.text+="\n"+t
+            } else out.add(SourceBlock(t,if(level>0||t==title)"heading" else if(metadata)"metadata" else "body",if(t==title)1 else level,origin="legacy:textOffset=${piece.sourceOffset}"))
         }
         return out.finish(title,format)
     }

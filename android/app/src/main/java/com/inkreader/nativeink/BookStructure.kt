@@ -3,19 +3,19 @@ package com.inkreader.nativeink
 import org.json.JSONArray
 import org.json.JSONObject
 
-internal data class BookBlock(val start:Int,val end:Int,val kind:String="body",val level:Int=0,val image:String="",val page:Int=-1)
+internal data class BookBlock(val start:Int,val end:Int,val kind:String="body",val level:Int=0,val image:String="",val page:Int=-1,val origin:String="")
 internal data class BookChapter(val title:String,val offset:Int,val level:Int=1,val source:String="generated")
 internal data class BookStructure(val blocks:List<BookBlock>,val chapters:List<BookChapter>,val directorySource:String="generated",val repairedBreaks:Int=0,val ocrPages:Int=0,val uncertainLines:Int=0,val comic:Boolean=false) {
     fun json()=JSONObject().put("schema",SCHEMA).put("revision",REVISION).put("source",directorySource).put("repairedBreaks",repairedBreaks).put("ocrPages",ocrPages).put("uncertainLines",uncertainLines).put("comic",comic)
-        .put("blocks",JSONArray().apply { blocks.forEach { put(JSONArray(listOf(it.start,it.end,it.kind,it.level,it.image,it.page))) } })
+        .put("blocks",JSONArray().apply { blocks.forEach { put(JSONArray(listOf(it.start,it.end,it.kind,it.level,it.image,it.page,it.origin))) } })
         .put("chapters",JSONArray().apply { chapters.forEach { put(JSONArray(listOf(it.title,it.offset,it.level,it.source))) } })
     companion object {
         const val SCHEMA=2
-        const val REVISION=3
+        const val REVISION=4
         fun read(value:String,text:String):BookStructure {
             val o=JSONObject(value);require(o.getInt("schema")==SCHEMA)
             val b=o.getJSONArray("blocks");val c=o.getJSONArray("chapters")
-            val blocks=(0 until b.length()).map { b.getJSONArray(it).let { a->BookBlock(a.getInt(0),a.getInt(1),a.getString(2),a.getInt(3),a.optString(4),a.optInt(5,-1)) } }
+            val blocks=(0 until b.length()).map { b.getJSONArray(it).let { a->BookBlock(a.getInt(0),a.getInt(1),a.getString(2),a.getInt(3),a.optString(4),a.optInt(5,-1),a.optString(6)) } }
             require(blocks.all { it.start>=0 && it.end<=text.length && it.start<it.end })
             val chapters=(0 until c.length()).map {c.getJSONArray(it).let {a->BookChapter(a.getString(0),a.getInt(1),a.getInt(2),a.getString(3))}}
             require(chapters.all {it.offset in text.indices})
@@ -53,6 +53,7 @@ internal object ChapterScanner {
         if(t.length !in 1..72 || Regex("[。！？!?；;]|…|[·.．]{4,}").containsMatchIn(t))return 0
         if(numbered.containsMatchIn(t))return if(Regex("^(?:第.+[部卷篇]|[卷篇]|Part|Book)",RegexOption.IGNORE_CASE).containsMatchIn(t))1 else 2
         val latin=t.any {it in 'A'..'Z'||it in 'a'..'z'}&&!t.any {it.code in 0x3400..0x9fff}
+        if(latin&&Regex("^(?:A |An )?Note on .{2,50}$").matches(t)&&TextSemantics.englishTitle(t))return 1
         if(if(latin)englishMatter.matches(t) else special.matches(t)||special.matches(key(t)))return 1
         if(section.containsMatchIn(t) && !t.endsWith('.') && t.length<=42 && !Regex("[，,：“”]").containsMatchIn(t)) {
             if(Regex("^[0-9]{1,2}\\s+[\\p{IsHan}]").containsMatchIn(t) && (t.length>18||Regex("[页頁行年图圖]").containsMatchIn(t)))return 0
@@ -62,7 +63,7 @@ internal object ChapterScanner {
     }
 }
 
-internal data class SourceBlock(var text:String,var kind:String="body",var level:Int=0,val anchors:MutableList<String> = mutableListOf(),var continuation:Boolean=false,val imageKey:String="",val page:Int=-1,var explicitHeading:Boolean=false,val navigationTarget:String="")
+internal data class SourceBlock(var text:String,var kind:String="body",var level:Int=0,val anchors:MutableList<String> = mutableListOf(),var continuation:Boolean=false,val imageKey:String="",val page:Int=-1,var explicitHeading:Boolean=false,val navigationTarget:String="",val origin:String="")
 internal class BookAssembly {
     val blocks=mutableListOf<SourceBlock>()
     val images=mutableMapOf<String,java.io.File>()
@@ -73,6 +74,8 @@ internal class BookAssembly {
     var comic=false
     fun add(block:SourceBlock) { if(block.text.isNotBlank())blocks+=block }
     fun finish(title:String,format:String,nav:List<Triple<String,Pair<Int,Int>,String>> = emptyList(),authoritative:Boolean=false):ParsedBook {
+        val repaired=BookTextRepair.english(blocks.map {it.text})
+        blocks.forEachIndexed {i,b->if(b.kind !in setOf("verse","image"))b.text=repaired[i]}
         blocks.filter {it.kind=="body"}.forEach {b->
             val level=ChapterScanner.level(b.text)
             if(level>0){b.kind="heading";b.level=level}else if(TextSemantics.metadata(b.text))b.kind="metadata"
@@ -90,7 +93,7 @@ internal class BookAssembly {
         val text=StringBuilder();val ranges=mutableListOf<BookBlock>();val chapters=mutableListOf<BookChapter>()
         blocks.forEach { b->
             if(text.isNotEmpty())text.append(if(comic)"\n" else "\n\n")
-            val start=text.length;text.append(b.text);ranges+=BookBlock(start,text.length,b.kind,b.level,b.imageKey,b.page)
+            val start=text.length;text.append(b.text);ranges+=BookBlock(start,text.length,b.kind,b.level,b.imageKey,b.page,b.origin.ifEmpty {if(b.page>=0)"pdf:page=${b.page+1}" else ""})
         }
         nav.forEach { (label,target,source)->
             // The parser passes a block index before the synthetic book-title insertion.

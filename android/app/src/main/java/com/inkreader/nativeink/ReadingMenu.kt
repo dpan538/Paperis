@@ -12,7 +12,7 @@ internal enum class MenuAction {
     SPACING, COLUMNS, OPTICAL, REFRESH, DRAFT_DOWN, DRAFT_UP, PERCENT, GO,
     CHAPTER, BOOKMARK_TOGGLE, BOOKMARK_GO, BOOKMARK_REMOVE, BOOKMARK_PREVIOUS, BOOKMARK_NEXT,
     FILES, IMPORT, IMPORT_FILES, IMPORT_FOLDER, FONT_FACE, FONT_IMPORT, PRESETS, PRESET,
-    SETTINGS, LANGUAGE, CHECK_UPDATE, DOWNLOAD_UPDATE, INSTALL_UPDATE, CANCEL_UPDATE, FEEDBACK, NIGHT, DARK, LIGHT, REFLOW, REPROCESS, OCR, ORIGINAL, ORIGINAL_FILE, STORAGE, BACKUP_FOLDER, BACKUP, RESTORE, RESUME, PAUSE
+    SETTINGS, LANGUAGE, CHECK_UPDATE, DOWNLOAD_UPDATE, INSTALL_UPDATE, CANCEL_UPDATE, FEEDBACK, NIGHT, DARK, LIGHT, WARMTH, REFLOW, REPROCESS, OCR, ORIGINAL, ORIGINAL_FILE, STORAGE, BACKUP_FOLDER, BACKUP, RESTORE, RESUME, PAUSE
 }
 internal data class MenuCommand(val action: MenuAction, val value: Int = 0)
 internal data class MenuControl(val text: String, val command: MenuCommand?, val selected: Boolean = false)
@@ -60,7 +60,7 @@ internal class ReadingMenu {
                 val step = (bounds.right - 16 - start) / row.controls.size
                 row.controls.forEachIndexed { i, control ->
                     val x = start + (i + .5f) * step
-                    label(c, control.text, x, top + 40, 19f, if (control.command == null) 120 else 45, Paint.Align.CENTER)
+                    label(c, control.text, x, top + 40, if(row.controls.size>=5)14f else 19f, if (control.command == null) 120 else 45, Paint.Align.CENTER)
                     if (control.selected) c.drawLine(x - 15, top + 49, x + 15, top + 49, rule)
                 }
             } else if (row.command != null) label(c, "›", bounds.right - 26, top + 40, 23f, 105, Paint.Align.CENTER)

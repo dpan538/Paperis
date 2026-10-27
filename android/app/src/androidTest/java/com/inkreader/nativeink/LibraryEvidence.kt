@@ -111,7 +111,9 @@ internal class LibraryEvidence(private val host:Instrumentation) {
             val legacyId=BookFiles.hashBytes("legacy-fixture".toByteArray());val legacyText="旧书\n\n第一章 晨光\n\n这是一段没有正确恢复的\n\n中文物理换行。\n\n第二章 夜读\n\n保留旧书正文。"
             File(savedDirectory,"$legacyId.txt").writeText(legacyText)
             val indexFile=File(savedDirectory,"index.json");val index=JSONArray(indexFile.readText());index.put(JSONObject().put("id",legacyId).put("name","old.pdf").put("title","旧书").put("format","PDF"));indexFile.writeText(index.toString())
-            val legacy=BookFiles(ctx);verify("Legacy text-only books reflow without requesting another import",!legacy.reprocess(legacyId)&&legacy.text(legacy.get(legacyId)!!).contains("这是一段没有正确恢复的中文物理换行。"))
+            // Without the original, an explicit blank paragraph boundary is not proof of a soft wrap.
+            // The paired ReadingRevisionEvidence fixture separately requires a real PDF soft wrap to join.
+            val legacy=BookFiles(ctx);verify("Legacy text-only books reflow locally while preserving uncertain explicit paragraph boundaries",!legacy.reprocess(legacyId)&&legacy.text(legacy.get(legacyId)!!).contains("这是一段没有正确恢复的\n\n中文物理换行。"))
             verify("Legacy reprocessing generates genuine chapter destinations",legacy.structure(legacy.get(legacyId)!!,legacy.text(legacy.get(legacyId)!!)).chapters.map {it.title}==listOf("第一章 晨光","第二章 夜读"))
             targetContext.cacheDir.listFiles()?.filter {it.name.startsWith("evidence12-")}?.forEach {it.deleteRecursively()}
             verify("New repository instance restores books with no cache dependency",BookFiles(ctx).let {store->store.text(store.get(entry.id)!!)==recognized&&store.original(store.get(entry.id)!!)!!.isFile})

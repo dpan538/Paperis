@@ -49,7 +49,7 @@ Windows 使用 `gradlew.bat`。首次构建需要下载 Gradle 和 Maven 依赖�
 - 反馈：草稿恢复、失败保留、稳定重试标识与回执核验；测试使用模拟传输，不创建真实 Issue。
 - 记录：每本书的阅读位置、重启恢复和简单书签。
 
-项目包含 JVM 单元测试与原生仪器测试。仪器测试会重置阅读偏好并使用固定布局条件，请在专用模拟器或可清空的测试设备上运行。示例中的 `YOUR_TEST_SERIAL` 需替换为测试设备序列号。
+项目包含 JVM 单元测试与原生仪器测试。分类检测、故障注入、修复反例和可重放矩阵可通过 `python3 tools/verify_reader.py --serial YOUR_EMULATOR_SERIAL --allow-reset-test-data --install` 执行；报告保存源位置、段落、排版坐标与修复规则，详见重排验证文档。仪器测试会重置阅读偏好并使用固定布局条件，请在专用模拟器或可清空的测试设备上运行。示例中的 `YOUR_TEST_SERIAL` 需替换为测试设备序列号。
 
 ```sh
 cd android
@@ -77,7 +77,7 @@ adb -s YOUR_TEST_SERIAL shell am instrument -w -e suite experience io.github.dpa
 adb -s YOUR_TEST_SERIAL shell am instrument -w -e suite viewport io.github.dpan538.inkreader.preview.test/com.inkreader.nativeink.InkEvidence
 ```
 
-`experience` 覆盖导入入口、设置尺寸、语言切换、应用内更新状态和错误安装包拒绝、反馈草稿与回执、夜间灯光和深色模式。`updates` 用独立构建的同签名未来版本 APK 检查断点续传、完整 APK 验签、系统安装授权、私有文件 URI 交接和缓存重用；夹具以 `paperisVersionCode` / `paperisVersionName` Gradle 属性提版，仅放在测试设备 external-files 的 `update-fixture.apk`，不可发布。Release 附带 `paperis-update.json`，包含包名、versionCode、versionName、APK 文件名、SHA-256 与签名证书 SHA-256；客户端只接受同仓库、同签名、更高版本。运行 `updates` 前先从宿主 adb 将测试设备的 `REQUEST_INSTALL_PACKAGES` app-op 设为 `deny`，不要在仪器测试进程内撤销该权限（Android 会结束目标进程）。发布后使用 `update-channel` 核对当前安装版与真实 GitHub 版本接口；它会清理测试更新缓存，不能在个人设备运行。更多边界见 [重排验证](docs/REFLOW_TESTING.md)。
+`reading-revision` 验证预设内冷暖/实际窗口亮度、菜单顺序、自然词间距和已合并错误的旧书副本；`experience` 覆盖导入入口、设置尺寸、语言切换、应用内更新状态和错误安装包拒绝、反馈草稿与回执、夜间灯光和深色模式。`updates` 用独立构建的同签名未来版本 APK 检查断点续传、完整 APK 验签、系统安装授权、私有文件 URI 交接和缓存重用；夹具以 `paperisVersionCode` / `paperisVersionName` Gradle 属性提版，仅放在测试设备 external-files 的 `update-fixture.apk`，不可发布。Release 附带 `paperis-update.json`，包含包名、versionCode、versionName、APK 文件名、SHA-256 与签名证书 SHA-256；客户端只接受同仓库、同签名、更高版本。运行 `updates` 前先从宿主 adb 将测试设备的 `REQUEST_INSTALL_PACKAGES` app-op 设为 `deny`，不要在仪器测试进程内撤销该权限（Android 会结束目标进程）。发布后使用 `update-channel` 核对当前安装版与真实 GitHub 版本接口；它会清理测试更新缓存，不能在个人设备运行。更多边界见 [重排验证](docs/REFLOW_TESTING.md)。
 
 `anchors`、`documents`、`migration` 使用目标应用 external-files 的私有 `import-samples` 长书与独立期望配置。`anchors` 检查连续 288 次布局变化与真实旋转/系统字体缩放；`migration` 检查旧书本机修复和同书补充原件。私有书籍、配置、原始截图和报告不能提交。
 

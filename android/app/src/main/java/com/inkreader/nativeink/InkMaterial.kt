@@ -59,6 +59,7 @@ internal class InkMaterial {
         runtime.setFloatUniform("readingPresets", previousAppearance.preset.toFloat(), targetAppearance.preset.toFloat())
         runtime.setFloatUniform("nightLight",if(previousAppearance.night) 1f else 0f,if(targetAppearance.night) 1f else 0f)
         runtime.setFloatUniform("darkMode",if(previousAppearance.dark) 1f else 0f,if(targetAppearance.dark) 1f else 0f)
+        runtime.setFloatUniform("temperature",previousAppearance.warmth.toFloat(),targetAppearance.warmth.toFloat())
         runtime.setFloatUniform("lightLevel",previousAppearance.light.toFloat(),targetAppearance.light.toFloat())
         runtime.setFloatUniform("elapsed", elapsedMs.toFloat())
         runtime.setFloatUniform("active", if (active) 1f else 0f)
@@ -81,6 +82,7 @@ internal class InkMaterial {
             uniform float2 nightLight;
             uniform float2 darkMode;
             uniform float2 lightLevel;
+            uniform float2 temperature;
             uniform float elapsed;
             uniform float active;
             uniform float fullRefresh;
@@ -231,7 +233,9 @@ internal class InkMaterial {
                 float paperWeight = smoothstep(0.18, 0.78, tone);
                 // Keep the default near-neutral; comfort is a small substrate bias, not a yellow overlay.
                 float warmth = dot(modes,float3(0.12,0.65,0.34)) + night*0.10;
-                float3 paperTone = float3(tone) + float3(0.003, 0.002, -0.002) * paperWeight * warmth;
+                float userTone=(mix(temperature.x,temperature.y,settling)-2.0)*0.5;
+                float3 temperatureTint=userTone>=0.0?float3(0.018,0.006,-0.030)*userTone:float3(0.016,0.005,-0.018)*userTone;
+                float3 paperTone = float3(tone) + (float3(0.003, 0.002, -0.002) * warmth+temperatureTint) * paperWeight;
                 return half4(half3(clamp(paperTone, 0.0, 1.0)), 1.0);
             }
         """.trimIndent()

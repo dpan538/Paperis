@@ -71,13 +71,16 @@ class InkEvidence : Instrumentation() {
     private var importsSuite=false
     private var pickerOnly=false
     private var extraSuite=""
-    override fun onCreate(arguments: Bundle?) { extraSuite=arguments?.getString("suite").orEmpty(); pickerOnly=arguments?.getString("suite")=="picker"; importsSuite=arguments?.getString("suite")=="imports" || pickerOnly; super.onCreate(arguments); start() }
+    private var evidenceArguments=Bundle()
+    override fun onCreate(arguments: Bundle?) {evidenceArguments=arguments?:Bundle();extraSuite=arguments?.getString("suite").orEmpty(); pickerOnly=arguments?.getString("suite")=="picker"; importsSuite=arguments?.getString("suite")=="imports" || pickerOnly; super.onCreate(arguments); start() }
     override fun onStart() {
         if(extraSuite=="source") { SourcePdfEvidence(this).run(); return }
         if(extraSuite=="updates") { UpdateEvidence(this).run(); return }
         if(extraSuite=="update-channel") { UpdateEvidence(this).runLive(); return }
         if(extraSuite=="migration") { MigrationEvidence(this).run(); return }
         if(extraSuite=="anchors") { AnchorEvidence(this).run(); return }
+        if(extraSuite=="reading-revision") { ReadingRevisionEvidence(this).run(); return }
+        if(extraSuite=="quality") { BookQualityEvidence(this,evidenceArguments).run(); return }
         if(extraSuite=="backup") { BackupExperienceEvidence(this).run(); return }
         if(extraSuite=="library") { LibraryEvidence(this).run(); return }
         if(extraSuite=="structure") { StructureEvidence(this).run(); return }

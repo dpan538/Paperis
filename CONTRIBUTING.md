@@ -43,7 +43,7 @@ Windows 使用 `gradlew.bat`。首次构建需要下载 Gradle 和 Maven 依赖�
 
 - 导入：系统选择、多选、文件夹、取消、重复文件、错误提示和原文件保持完整。
 - 格式：编码、EPUB 书脊顺序、DOCX 段落，以及 PDF 文本层、纯扫描页 OCR、插图与不支持格式的边界。
-- 排版：连续正文不丢失、不重复、不裁切；标点、段末孤字与跨页段落；字体和字号变化后的正文位置。
+- 排版：连续正文不丢失、不重复、不裁切；标点、段末孤字与跨页段落；连续调整字体、字号、行距、栏数和横竖屏后仍保留同一正文锚点。
 - 平板：横竖屏、显示密度、系统边距、触控与菜单；导入字体及缺字回退。
 - 屏幕：三种材质、刷新序列、快速连续操作、完成后无旧字残留、静止状态、关闭动画和后台传感器。
 - 反馈：草稿恢复、失败保留、稳定重试标识与回执核验；测试使用模拟传输，不创建真实 Issue。
@@ -77,7 +77,9 @@ adb -s YOUR_TEST_SERIAL shell am instrument -w -e suite experience io.github.dpa
 adb -s YOUR_TEST_SERIAL shell am instrument -w -e suite viewport io.github.dpan538.inkreader.preview.test/com.inkreader.nativeink.InkEvidence
 ```
 
-`experience` 覆盖导入入口、设置尺寸、语言切换、更新成功与失败回调、浏览器下载交接、应用内反馈草稿与回执、夜间灯光和深色模式。更新分支使用可控响应，避免把外部网络稳定性当作 UI 测试前提；发布后另行核对真实 GitHub 版本接口。更多边界见 [重排验证](docs/REFLOW_TESTING.md)。
+`experience` 覆盖导入入口、设置尺寸、语言切换、应用内更新状态和错误安装包拒绝、反馈草稿与回执、夜间灯光和深色模式。`updates` 用独立构建的同签名未来版本 APK 检查断点续传、完整 APK 验签、系统安装授权、私有文件 URI 交接和缓存重用；夹具以 `paperisVersionCode` / `paperisVersionName` Gradle 属性提版，仅放在测试设备 external-files 的 `update-fixture.apk`，不可发布。Release 附带 `paperis-update.json`，包含包名、versionCode、versionName、APK 文件名、SHA-256 与签名证书 SHA-256；客户端只接受同仓库、同签名、更高版本。运行 `updates` 前先从宿主 adb 将测试设备的 `REQUEST_INSTALL_PACKAGES` app-op 设为 `deny`，不要在仪器测试进程内撤销该权限（Android 会结束目标进程）。发布后使用 `update-channel` 核对当前安装版与真实 GitHub 版本接口；它会清理测试更新缓存，不能在个人设备运行。更多边界见 [重排验证](docs/REFLOW_TESTING.md)。
+
+`anchors`、`documents`、`migration` 使用目标应用 external-files 的私有 `import-samples` 长书与独立期望配置。`anchors` 检查连续 288 次布局变化与真实旋转/系统字体缩放；`migration` 检查旧书本机修复和同书补充原件。私有书籍、配置、原始截图和报告不能提交。
 
 反馈服务的本地测试与部署配置见 [feedback-service/README.md](feedback-service/README.md)。
 

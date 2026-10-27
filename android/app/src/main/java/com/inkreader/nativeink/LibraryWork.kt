@@ -1,65 +1,63 @@
 package com.inkreader.nativeink
 
-import android.app.*
-import android.content.*
-import android.content.pm.ServiceInfo
+import android.content.Context
 import android.net.Uri
 import android.os.Handler
-import android.os.IBinder
 import android.os.Looper
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
-/** User-initiated foreground work, with a durable job journal and per-page PDF checkpoints. */
+/** In-app work only. Originals and checkpoints survive pause or process loss; no notification service. */
 internal object LibraryWork {
     @Volatile var active=false;private set
     @Volatile var message="";private set
     var observer:((String,Boolean)->Unit)?=null
     private val main=Handler(Looper.getMainLooper())
+    private val worker=Executors.newSingleThreadExecutor()
+    @Volatile private var running:Thread?=null
+    private var signal=AtomicBoolean(false)
+    private fun preferences(context:Context)=context.getSharedPreferences("library-work",Context.MODE_PRIVATE)
     fun journal(context:Context)=File(context.filesDir,"library-work.json")
     fun pending(context:Context)=journal(context).isFile
-    fun start(context:Context,job:JSONObject?=null) {
+    fun mayResume(context:Context)=preferences(context).getBoolean("resumeOnOpen",true)
+    @Synchronized fun prepare(context:Context,job:JSONObject) {
+        val atomic=android.util.AtomicFile(journal(context));val stream=atomic.startWrite()
+        try{stream.write(job.toString().toByteArray());atomic.finishWrite(stream)}catch(t:Throwable){atomic.failWrite(stream);throw t}
+        preferences(context).edit().putBoolean("resumeOnOpen",true).commit()
+    }
+    @Synchronized fun start(context:Context,job:JSONObject?=null) {
         if(active)return
-        if(job!=null) {
-            val atomic=android.util.AtomicFile(journal(context));val stream=atomic.startWrite()
-            try{stream.write(job.toString().toByteArray());atomic.finishWrite(stream)}catch(t:Throwable){atomic.failWrite(stream);throw t}
+        val app=context.applicationContext
+        if(job!=null)prepare(app,job)
+        require(pending(app)) {"没有待继续的整理任务"}
+        preferences(app).edit().putBoolean("resumeOnOpen",true).commit()
+        val token=AtomicBoolean(false);signal=token
+        status("正在准备书籍…",true)
+        worker.execute {
+            running=Thread.currentThread()
+            try {
+                if(token.get())status("已暂停，原文件和进度已保留",false)
+                else runJob(app)
+            } finally {running=null;Thread.interrupted()}
         }
-        active=true
-        try {context.startForegroundService(Intent(context,LibraryService::class.java))}catch(t:Throwable){active=false;throw t}
     }
     internal fun status(value:String,busy:Boolean) {message=value;active=busy;main.post {observer?.invoke(value,busy)}}
-    fun cancel(context:Context) {context.startService(Intent(context,LibraryService::class.java).setAction("cancel"))}
-}
-
-class LibraryService:Service() {
-    private val worker=Executors.newSingleThreadExecutor();private var task:java.util.concurrent.Future<*>?=null
-    private val manager get()=getSystemService(NotificationManager::class.java)
-    override fun onBind(intent:Intent?):IBinder?=null
-    override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int {
-        if(intent?.action=="cancel") {task?.cancel(true);return START_NOT_STICKY}
-        manager.createNotificationChannel(NotificationChannel("library","书籍整理 / Library",NotificationManager.IMPORTANCE_LOW))
-        startForeground(41,notification("正在准备书籍…"),ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        if(task?.isDone==false)return START_NOT_STICKY
-        LibraryWork.status("正在准备书籍…",true)
-        task=worker.submit {runJob(startId)};return START_NOT_STICKY
+    @Synchronized fun cancel(context:Context,manual:Boolean=true) {
+        preferences(context).edit().putBoolean("resumeOnOpen",!manual).commit()
+        signal.set(true);running?.interrupt()
     }
-    private fun notification(value:String):Notification {
-        val open=PendingIntent.getActivity(this,0,Intent(this,MainActivity::class.java),PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val cancel=PendingIntent.getService(this,1,Intent(this,LibraryService::class.java).setAction("cancel"),PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        return Notification.Builder(this,"library").setSmallIcon(com.inkreader.nativeink.R.drawable.ic_ink).setContentTitle("Paperis 纸墨").setContentText(value.replace('\n',' ')).setContentIntent(open).setOngoing(true).addAction(Notification.Action.Builder(null,"暂停 / Pause",cancel).build()).build()
-    }
-    private fun runJob(startId:Int) {
-        val books=BookFiles(this);val backup=LibraryBackup(this,books)
+    private fun runJob(context:Context) {
+        val books=BookFiles(context);val backup=LibraryBackup(context,books)
         var last=0L
         fun update(value:String,force:Boolean=false) {
-            check(!Thread.currentThread().isInterrupted) {"已暂停，整理进度已保留，可在设置中继续"}
+            check(!signal.get()&&!Thread.currentThread().isInterrupted) {"已暂停，整理进度已保留，可在设置中继续"}
             val now=android.os.SystemClock.uptimeMillis();if(!force&&now-last<700)return;last=now
-            LibraryWork.status(value,true);manager.notify(41,notification(value))
+            status(value,true)
         }
         val result=runCatching {
-            val job=JSONObject(LibraryWork.journal(this).readText());val english=job.optBoolean("english")
+            val job=JSONObject(journal(context).readText());val english=job.optBoolean("english")
             fun t(zh:String,en:String)=if(english)en else zh
             val kind=job.getString("kind")
             var notice=when(kind) {
@@ -72,27 +70,29 @@ class LibraryService:Service() {
                 else->{
                     val items=job.getJSONArray("items");var added=job.optInt("added");var duplicate=job.optInt("duplicates");val errors=mutableListOf<String>()
                     for(i in job.optInt("next") until items.length()) {
-                        val item=items.getJSONObject(i);val uri=Uri.parse(item.getString("uri"));val name=books.displayName(uri)
+                        val item=items.getJSONObject(i);val uri=Uri.parse(item.getString("uri"));val name=item.optString("name").ifEmpty {books.displayName(uri)}
                         update(t("正在导入 ${i+1}/${items.length()} · $name","Importing ${i+1}/${items.length()} · $name"),true)
-                        runCatching {books.import(uri,item.optString("folder"),progress={p,n->update(t("整理 $name · $p / $n\n扫描页将离线识别，可暂停后继续","Preparing $name · $p / $n\nScanned pages use offline OCR; pause/resume available"))})}
-                            .onSuccess {if(it)added++ else duplicate++}.onFailure {if(Thread.currentThread().isInterrupted)throw it;errors+="$name: ${ReaderErrors.message(it.message,english)}"}
+                        runCatching {books.import(uri,item.optString("folder"),providedName=name,progress={p,n->update(t("整理 $name · $p / $n\n扫描页将离线识别，可暂停后继续","Preparing $name · $p / $n\nScanned pages use offline OCR; pause/resume available"))})}
+                            .onSuccess {if(it)added++ else duplicate++}.onFailure {if(signal.get()||Thread.currentThread().isInterrupted)throw it;errors+=ReaderErrors.message(it.message,english)}
                         job.put("next",i+1).put("added",added).put("duplicates",duplicate)
-                        val atomic=android.util.AtomicFile(LibraryWork.journal(this));val out=atomic.startWrite();try{out.write(job.toString().toByteArray());atomic.finishWrite(out)}catch(t:Throwable){atomic.failWrite(out);throw t}
-                    };t("导入 $added · 已存在 $duplicate · 失败 ${errors.size}\n原文件、目录和插图已保存在本机","Imported $added · Existing $duplicate · Failed ${errors.size}\nOriginals, contents and illustrations saved locally")+errors.firstOrNull()?.let {"\n$it"}.orEmpty()
+                        val atomic=android.util.AtomicFile(journal(context));val out=atomic.startWrite();try{out.write(job.toString().toByteArray());atomic.finishWrite(out)}catch(t:Throwable){atomic.failWrite(out);throw t}
+                        if(uri.scheme=="file")java.io.File(uri.path.orEmpty()).takeIf {it.parentFile?.canonicalFile==java.io.File(context.filesDir,"incoming").canonicalFile}?.delete()
+                    };if(errors.isEmpty())t("已导入 $added 本 · 已存在 $duplicate 本","Imported $added · Existing $duplicate")
+                    else t("有 ${errors.size} 个文件未能导入","${errors.size} files could not be imported")+"\n"+errors.first()
                 }
             }
             if(kind in setOf("import","reflow")&&backup.tree!=null) {
                 update(t("正在同步到所选备份文件夹…","Saving to your backup folder…"),true)
                 val saved=runCatching {backup.backupAll {p,n->update(t("备份 $p / $n","Backing up $p / $n"))}}
+                check(!signal.get()&&!Thread.currentThread().isInterrupted) {"已暂停，整理进度已保留"}
                 notice+=saved.fold({t("\n独立备份已校验","\nIndependent backup verified")},{backup.preferences.edit().putString("error",it.message).commit();t("\n本机已保存，备份失败；请在设置中重试","\nSaved locally; backup failed. Retry in Settings")})
             }
-            LibraryWork.journal(this).delete();notice
+            check(!signal.get()&&!Thread.currentThread().isInterrupted) {"已暂停，整理进度已保留"}
+            journal(context).delete();notice
         }
-        val value=result.getOrElse {if(Thread.currentThread().isInterrupted)"已暂停，原文件和进度已保留，可在设置中继续" else "整理未完成，原书保持不变：${it.message}\n可在设置中继续"}
-        stopForeground(STOP_FOREGROUND_REMOVE);stopSelf(startId);LibraryWork.status(value,false)
+        val paused=signal.get()||Thread.currentThread().isInterrupted
+        if(result.isFailure&&!paused)preferences(context).edit().putBoolean("resumeOnOpen",false).commit()
+        val value=result.getOrElse {if(paused)"已暂停，原文件和进度已保留，可在设置中继续" else "整理未完成，原书保持不变\n"+ReaderErrors.message(it.message,false)}
+        status(value,false)
     }
-    override fun onTimeout(startId:Int,fgsType:Int) {
-        task?.cancel(true);stopSelf(startId);LibraryWork.status("整理已暂停，进度已保留；可在设置中继续",false)
-    }
-    override fun onDestroy() {worker.shutdownNow();super.onDestroy()}
 }

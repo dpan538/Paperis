@@ -71,9 +71,9 @@ internal class BookFiles(private val context: Context) {
     }
     fun reading(entry: BookFile) = context.getSharedPreferences(if (entry.id == "sample") "reading" else "book_${entry.id}", Context.MODE_PRIVATE)
     fun displayName(uri: Uri): String {
-        return context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+        return runCatching {context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
             if (cursor.moveToFirst()) cursor.getString(0) else null
-        } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "未命名"
+        }}.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/') ?: "未命名"
     }
     fun copy(uri: Uri, destination: File, limit: Int) {
         context.contentResolver.openInputStream(uri)?.use { input ->
@@ -89,6 +89,16 @@ internal class BookFiles(private val context: Context) {
     }
     fun hasOriginal(entry:BookFile)=File(bundle(entry),"original").isFile
     fun original(entry:BookFile)=File(bundle(entry),"original").takeIf {it.isFile}
+    fun needsRepair(entry:BookFile)=entry.id!="sample" && runCatching {JSONObject(File(bundle(entry),"structure.json").readText()).optInt("revision")<BookStructure.REVISION}.getOrDefault(true)
+    @Synchronized fun attachOriginal(id:String,uri:Uri) {
+        val entry=checkNotNull(get(id));val job=jobDirectory("attach-$id");val source=File(job,"original")
+        try {
+            copy(uri,source,BookImporter.MAX_BYTES)
+            require(hashFile(source)==id) {"所选文件与这本旧书不一致，请选择原来的同一文件"}
+            val parsed=BookImporter.parse(source,entry.name,context=context,workspace=File(job,"assets"))
+            commit(id,entry.name,entry.folder,parsed,source,entry)
+        } finally {job.deleteRecursively()}
+    }
     internal fun jobDirectory(key:String)=File(context.filesDir,"import-jobs/$key").also {it.mkdirs()}
     /** The original is staged on durable storage, not the evictable cache. */
     @Synchronized fun import(uri:Uri,folder:String="",providedName:String?=null,rebuild:Boolean=false,progress:(Int,Int)->Unit={_,_->}):Boolean {
@@ -101,7 +111,7 @@ internal class BookFiles(private val context: Context) {
         }
         try {
             val hash=hashFile(source);val existing=entries.firstOrNull {it.id==hash}
-            if(!rebuild&&existing?.structured==true&&File(bundle(existing),"structure.json").isFile){job.deleteRecursively();return false}
+            if(!rebuild&&existing?.structured==true&&!needsRepair(existing)&&File(bundle(existing),"structure.json").isFile){job.deleteRecursively();return false}
             val parsed=BookImporter.parse(source,name,progress,context,File(job,"assets"))
             check(!Thread.currentThread().isInterrupted) {"已暂停，进度已保留"}
             commit(hash,name,existing?.folder?:folder,parsed,source,existing)
@@ -119,9 +129,9 @@ internal class BookFiles(private val context: Context) {
     }
     private fun legacyReflow(value:String,title:String,format:String):ParsedBook {
         val out=BookAssembly()
-        value.replace("\r","").split(Regex("\\n+" )).filter {it.isNotBlank()}.forEach {line->
+        LegacyBookRepair.lines(value).forEach {line->
             val t=line.trim();val level=ChapterScanner.level(t);val metadata=TextSemantics.metadata(t)
-            if(t.matches(Regex("[0-9]{1,4}")))return@forEach
+            if(t.matches(Regex("[一二三四五六七八九十百零〇0-9IVXLCDMivxlcdm]{1,8}"))) {out.add(SourceBlock(t,"subtitle"));return@forEach}
             val prev=out.blocks.lastOrNull()
             if(level==0&&!metadata&&prev?.kind=="body"&&prev.text.last() !in "。！？.!?：:”’」』"&&t.length>2) {
                 prev.text=BookImporter.joinProse(prev.text,t);out.repairedBreaks++

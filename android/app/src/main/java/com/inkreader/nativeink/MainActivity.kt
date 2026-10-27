@@ -16,26 +16,45 @@ class MainActivity : Activity() {
     private val imports = Executors.newSingleThreadExecutor()
     private var localTask = false
     private val importing get()=localTask||LibraryWork.active
-    private val updates = Executors.newSingleThreadExecutor()
+    internal lateinit var appUpdates:AppUpdates
+    private var installOnReady=false
+    private var readingWork=false
+    private var attachingBook=""
+    private var visible=false
     internal lateinit var readerFeedback:ReaderFeedback
     private var feedbackDialog:FeedbackDialog?=null
     internal val feedbackOpen get()=feedbackDialog?.isShowing==true
-    internal var updateSource: () -> ReaderUpdates.Result = ReaderUpdates::fetch
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setDecorFitsSystemWindows(false)
+        getSystemService(android.app.NotificationManager::class.java)?.apply {cancelAll();deleteNotificationChannel("library")}
         readerFeedback=ReaderFeedback(applicationContext) { feedbackDialog?.refresh() }
-        inkView = InkView(this, ::chooseFiles, ::chooseFont, ::checkUpdates, ::openExternal, ::openFeedback, ::reprocess, ::storage, ::originalPage)
+        inkView = InkView(this, ::chooseFiles, ::chooseFont, ::checkUpdates, ::openExternal, ::openFeedback, ::reprocess, ::storage, ::originalPage, ::updateAction, ::attachOriginal, ::repairOpenedBook)
+        appUpdates=AppUpdates(applicationContext) { value ->
+            inkView.updateStatus(value,appUpdates.candidate?.versionName.orEmpty())
+            if(value.phase==UpdatePhase.ERROR)installOnReady=false
+            if(value.phase==UpdatePhase.READY&&installOnReady) {installOnReady=false;appUpdates.install(this)}
+        }
         setContentView(inkView)
         fullscreen()
         onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
             if (!inkView.backFromTools()) { if (!inkView.libraryOpen) inkView.showFiles() else finish() }
         }
-        LibraryWork.observer={notice,busy->if(!isDestroyed){if(!busy)inkView.files.reload();inkView.showFiles(notice,busy)}}
+        LibraryWork.observer={notice,busy->if(!isDestroyed&&visible){
+            if(busy)window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            if(busy)inkView.showFiles(notice,true)
+            else if(LibraryWork.pending(this)&&LibraryWork.mayResume(this))startWork()
+            else {
+                if(readingWork){readingWork=false;inkView.reloadReading()}else inkView.showFiles()
+                if(notice.contains("未能")||notice.contains("未完成")||notice.contains("failed",true))android.app.AlertDialog.Builder(this).setMessage(notice.lineSequence().take(2).joinToString("\n")).setPositiveButton(android.R.string.ok,null).show()
+                else android.widget.Toast.makeText(this,notice.lineSequence().first().take(100),android.widget.Toast.LENGTH_LONG).show()
+            }
+        }}
         if(LibraryWork.active)inkView.showFiles(LibraryWork.message,true)
         else if(LibraryWork.pending(this))inkView.showFiles(inkView.text("上次整理未完成，可在设置中继续","Unfinished work can be resumed in Settings"))
         acceptIntent(intent)
+        inkView.post {if(!inkView.libraryOpen)repairOpenedBook()}
     }
 
     private fun openFeedback() {
@@ -47,14 +66,18 @@ class MainActivity : Activity() {
     }
 
     private fun checkUpdates() {
-        updates.execute {
-            val result=runCatching { updateSource() }.getOrDefault(ReaderUpdates.Result(4))
-            runOnUiThread { if(!isDestroyed) inkView.updateResult(result) }
+        appUpdates.check()
+    }
+    private fun updateAction(action:String) {
+        when(action){
+            "download"->{installOnReady=true;appUpdates.download()}
+            "install"->appUpdates.install(this)
+            "cancel"->{installOnReady=false;appUpdates.cancel()}
         }
     }
     private fun openExternal(url: String) {
         runCatching { startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url))) }
-            .onFailure { inkView.updateResult(ReaderUpdates.Result(4)) }
+            .onFailure { android.widget.Toast.makeText(this,inkView.text("无法打开链接","Could not open link"),android.widget.Toast.LENGTH_SHORT).show() }
     }
 
     private fun chooseFiles(folder: Boolean) {
@@ -71,6 +94,14 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode,resultCode,data)
         if (resultCode != RESULT_OK || data == null) return
+        if(requestCode==16) {
+            val uri=data.data?:return;val id=attachingBook
+            localTask=true;inkView.showFiles(inkView.text("正在恢复原目录与插图…","Restoring source contents and images…"),true)
+            imports.execute {
+                val result=runCatching {inkView.files.attachOriginal(id,uri)}
+                runOnUiThread {if(!isDestroyed){localTask=false;result.onSuccess {inkView.reloadReading()}.onFailure {inkView.showFiles();android.app.AlertDialog.Builder(this).setMessage(ReaderErrors.message(it.message,inkView.english)).setPositiveButton(android.R.string.ok,null).show()}}}
+            };return
+        }
         if(requestCode==14) {
             data.data?.let {uri->runCatching {LibraryBackup(this,inkView.files).choose(uri);storage(1)}.onFailure {inkView.showFiles(it.message.orEmpty())}}
             return
@@ -97,31 +128,64 @@ class MainActivity : Activity() {
         startImport(uris.map {it to ""})
     }
     private fun startImport(items:List<Pair<Uri,String>>) {
-        val values=org.json.JSONArray();items.forEach {(uri,folder)->values.put(org.json.JSONObject().put("uri",uri.toString()).put("folder",folder))}
-        startWork(org.json.JSONObject().put("kind","import").put("items",values))
+        localTask=true;inkView.showFiles(inkView.text("正在保存所选原文件…","Saving selected originals…"),true)
+        imports.execute {
+            val staged=mutableListOf<java.io.File>()
+            val result=runCatching {
+                val values=org.json.JSONArray()
+                val folder=java.io.File(filesDir,"incoming").also {it.mkdirs()}
+                for((uri,path) in items) {
+                    val name=inkView.files.displayName(uri)
+                    val copy=java.io.File(folder,java.util.UUID.randomUUID().toString())
+                    staged+=copy;inkView.files.copy(uri,copy,BookImporter.MAX_BYTES)
+                    values.put(org.json.JSONObject().put("uri",Uri.fromFile(copy).toString()).put("folder",path).put("name",name))
+                }
+                org.json.JSONObject().put("kind","import").put("items",values)
+            }
+            val prepared=result.mapCatching {LibraryWork.prepare(applicationContext,it);it}
+            runOnUiThread {if(!isDestroyed){localTask=false
+                prepared.onSuccess {startWork(it)}.onFailure {error->
+                    staged.forEach {it.delete()};inkView.showFiles()
+                    android.app.AlertDialog.Builder(this).setTitle(inkView.text("无法导入文件","Could not import file")).setMessage(ReaderErrors.message(error.message,inkView.english)).setPositiveButton(android.R.string.ok,null).show()
+                }
+            }}
+        }
     }
     internal fun importTree(uri:Uri) {
         if(importing)return
-        background(inkView.text("正在读取文件夹…","Reading folder…")) {
-            val documents=treeFiles(uri)
-            runOnUiThread {startImport(documents)}
-            "" to false
+        localTask=true;inkView.showFiles(inkView.text("正在读取文件夹…","Reading folder…"),true)
+        imports.execute {
+            val result=runCatching {treeFiles(uri)}
+            runOnUiThread {if(!isDestroyed){localTask=false;result.onSuccess {startImport(it)}.onFailure {error->
+                inkView.showFiles();android.app.AlertDialog.Builder(this).setMessage(ReaderErrors.message(error.message,inkView.english)).setPositiveButton(android.R.string.ok,null).show()
+            }}}
         }
     }
     private fun startWork(job:org.json.JSONObject?=null) {
         if(LibraryWork.active)return
-        if(checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED&&!inkView.files.preferences.getBoolean("notificationAsked",false)) {
-            inkView.files.preferences.edit().putBoolean("notificationAsked",true).apply()
-            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),15)
-        }
         job?.put("english",inkView.english)
+        if(!visible){job?.let {LibraryWork.prepare(this,it)};return}
+        val current=job?:runCatching {org.json.JSONObject(LibraryWork.journal(this).readText())}.getOrNull()
+        readingWork=current?.optString("kind")=="reflow"&&current.optString("id")==inkView.currentBookId
         LibraryWork.start(this,job)
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         inkView.showFiles(inkView.text("正在准备…","Preparing…"),true)
     }
     private fun reprocess(forceOcr:Boolean) {
         if(importing)return
         inkView.saveReadingState()
+        readingWork=true
         startWork(org.json.JSONObject().put("kind","reflow").put("id",inkView.currentBookId).put("ocr",forceOcr))
+    }
+    private fun repairOpenedBook() {
+        inkView.files.reload()
+        val book=inkView.files.get(inkView.currentBookId)?:return
+        if(!importing&&inkView.files.needsRepair(book))reprocess(false)
+    }
+    private fun attachOriginal() {
+        if(importing)return
+        attachingBook=inkView.currentBookId
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {type="*/*";addCategory(Intent.CATEGORY_OPENABLE)},16)
     }
     private fun storage(action:Int) {
         if(importing)return
@@ -176,18 +240,32 @@ class MainActivity : Activity() {
             }
         }
     }
-    override fun onDestroy() { LibraryWork.observer=null;feedbackDialog?.dismiss();if(::readerFeedback.isInitialized)readerFeedback.close();imports.shutdown(); updates.shutdown(); super.onDestroy() }
+    override fun onDestroy() { LibraryWork.observer=null;feedbackDialog?.dismiss();if(::readerFeedback.isInitialized)readerFeedback.close();imports.shutdown();if(::appUpdates.isInitialized)appUpdates.close(); super.onDestroy() }
 
     private fun fullscreen() {
         window.insetsController?.apply {
-            hide(WindowInsets.Type.systemBars())
+            show(WindowInsets.Type.statusBars())
+            hide(WindowInsets.Type.navigationBars())
+            setSystemBarsAppearance(if(::inkView.isInitialized&&inkView.darkEnabled)0 else WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS)
             systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) fullscreen() }
     override fun onPause() { inkView.pause(); super.onPause() }
-    override fun onResume() { super.onResume(); if (::inkView.isInitialized) inkView.resume() }
+    override fun onStart() {super.onStart();visible=true}
+    override fun onStop() {visible=false;window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);if(!isChangingConfigurations&&LibraryWork.active)LibraryWork.cancel(this,false);super.onStop()}
+    override fun onResume() {
+        super.onResume()
+        if(::inkView.isInitialized) {
+            inkView.resume()
+            if(LibraryWork.active)inkView.showFiles(LibraryWork.message,true)
+            else if(LibraryWork.pending(this)&&LibraryWork.mayResume(this))startWork()
+            else if(LibraryWork.pending(this))inkView.showFiles(inkView.text("已暂停，可在设置中继续","Paused; resume in Settings"))
+            else if(!localTask&&inkView.importBusy){if(readingWork){readingWork=false;inkView.reloadReading()}else inkView.showFiles()}
+        }
+        if(::appUpdates.isInitialized)appUpdates.returnedToApp(this)
+    }
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_VOLUME_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_PAGE_DOWN -> inkView.turnPage(1)

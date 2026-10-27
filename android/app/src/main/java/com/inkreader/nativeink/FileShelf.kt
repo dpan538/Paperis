@@ -50,13 +50,12 @@ internal class FileShelf {
             val top = listTop(height) + i * 94f
             label(if (entry.folder) "▱  ${entry.label}" else entry.label, margin+16f, top+32, 22f, max=(width-margin*2-160f).coerceAtLeast(80f))
             label(if(entry.folder) t("文件夹","Folder") else entry.detail,width-margin-100f,top+32,17f,115,max=100f)
-            if(entry.subtitle.isNotEmpty())label(if(entry.chapters>=0)t("${entry.chapters} 章节 · ${entry.subtitle}","${entry.chapters} chapters · ${entry.subtitle}") else if(entry.id=="sample")t("试读","Sample") else t("旧版导入 · 重新导入可优化排版","Re-import to update text and contents"),margin+16f,top+60f,14f,115,max=width-margin*2-32f)
+            if(entry.subtitle.isNotEmpty())label(if(entry.chapters>=0)t("${entry.chapters} 章节","${entry.chapters} chapters") else if(entry.id=="sample")t("试读","Sample") else t("本机书籍","Local book"),margin+16f,top+60f,14f,115,max=width-margin*2-32f)
             c.drawLine(margin,top+80,width-margin,top+70,line)
             hit(RectF(margin,top,width-margin,top+86), ShelfCommand(if (entry.folder) "folder" else "book",entry.id))
         }
         if (entries.isEmpty()) label(t("此文件夹还没有书籍，可从上方导入。","No books here yet. Choose Import above."),margin+16f,listTop(height)+60f,21f,110)
-        val status = notice.ifEmpty { t("TXT / EPUB / CBZ 与图片 ZIP 漫画 / MD / HTML / DOCX / PDF","TXT / EPUB / CBZ and image ZIP comics / MD / HTML / DOCX / PDF") }
-        status.lineSequence().take(3).forEachIndexed { i,value -> label(value,margin,height-152+i*25,17f,110) }
+        if(busy)notice.lineSequence().take(2).forEachIndexed {i,value->label(value,margin,height-152+i*25,17f,110)}
         label("‹",96f,height-61,25f); hit(RectF(72f,height-100,180f,height-24),ShelfCommand("previous"))
         label("${selected+1} / ${last+1}",width/2-25,height-62,17f,110)
         label("›",width-108,height-61,25f); hit(RectF(width-180,height-100,width-72,height-24),ShelfCommand("next"))

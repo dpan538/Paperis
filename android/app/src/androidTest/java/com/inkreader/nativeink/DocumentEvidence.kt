@@ -55,6 +55,17 @@ internal class DocumentEvidence(private val host:Instrumentation) {
                 val text=files.text(entry);val structure=files.structure(entry,text)
                 val expectationFile=File(input,"expectations.json")
                 val expected=if(expectationFile.isFile)JSONObject(expectationFile.readText()).optJSONObject(file.name) else null
+                expected?.optJSONArray("chapterSequence")?.let {sequence->
+                    check(structure.chapters.map {ChapterScanner.key(it.title)}==(0 until sequence.length()).map {ChapterScanner.key(sequence.getString(it))}) {"Source contents differs from independently supplied chapter sequence: ${structure.chapters.map {it.title}}"}
+                    check(structure.chapters.all {it.source=="epub"}) {"Complete source navigation was replaced by guesses"}
+                }
+                expected?.optJSONArray("uniqueHeadings")?.let {headings->repeat(headings.length()){n->
+                    val key=ChapterScanner.key(headings.getString(n))
+                    check(structure.blocks.count {ChapterScanner.key(text.substring(it.start,it.end))==key}==1) {"Printed contents or duplicate HTML title remains: $key"}
+                }}
+                expected?.optJSONArray("forbiddenChapters")?.let {labels->repeat(labels.length()){n->
+                    check(structure.chapters.none {ChapterScanner.key(it.title)==ChapterScanner.key(labels.getString(n))}) {"Printed contents or publisher metadata was classified as a chapter: ${labels.getString(n)}"}
+                }}
                 expected?.optJSONArray("chapterPrefixes")?.let {prefixes->repeat(prefixes.length()){n->val prefix=prefixes.getString(n);check(structure.chapters.any {c->ChapterScanner.key(c.title).startsWith(ChapterScanner.key(prefix))}) {"Required chapter missing: $prefix"}}}
                 expected?.optJSONArray("paragraphs")?.let {paragraphs->repeat(paragraphs.length()){n->check(text.contains(paragraphs.getString(n))) {"Known paragraph was split or altered"}}}
                 check(structure.blocks.filter {it.kind=="image"}.all {files.imageSize(entry,it.image)!=null}) {"An imported illustration has no decodable local asset"}
@@ -74,6 +85,12 @@ internal class DocumentEvidence(private val host:Instrumentation) {
                     check(b.pages[activity.inkView.currentPage].let {chosen.offset in it.first().start until it.last().end}) {"Wrong TOC destination"}
                     check(slices.all {b.layout.getLineBottom(it.lastLine)-b.layout.getLineTop(it.firstLine)<=b.bodyHeight+.5f}) {"Clipped column: ${file.name}"}
                     for(line in 0 until b.layout.lineCount)check(b.layout.getLineRight(line)<=b.columnWidth+.5f) {"Clipped line $line: ${file.name}: ${b.layout.getLineRight(line)} > ${b.columnWidth}: ${text.substring(b.layout.getLineStart(line),b.layout.getLineEnd(line))}"}
+                    expected?.optJSONObject("chapterBody")?.let {pairs->for(label in pairs.keys()) {
+                        val chapter=structure.chapters.single {ChapterScanner.key(it.title)==ChapterScanner.key(label)}
+                        val page=b.pageForOffset(chapter.offset);val content=b.pageText(page)
+                        check(content.contains(pairs.getString(label))) {"Chapter $label is stranded on a title-only page"}
+                        check(page==0||!b.pageText(page-1).trim().let {ChapterScanner.key(it)==ChapterScanner.key(label)}) {"A duplicate title-only page precedes $label"}
+                    }}
                     activity.inkView.openMenu(MenuPage.NAVIGATION)
                 }
                 capture(activity,"$i-contents")

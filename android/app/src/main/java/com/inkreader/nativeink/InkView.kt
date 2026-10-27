@@ -19,14 +19,14 @@ import kotlin.math.min
 
 class InkView @JvmOverloads constructor(context: Context, private val importFiles: (Boolean) -> Unit = {}, private val importFont: () -> Unit = {},
     private val checkUpdate: () -> Unit = {}, private val external: (String) -> Unit = {},
-    private val feedback: () -> Unit = {}, private val reprocess:(Boolean)->Unit={}, private val storage:(Int)->Unit={}, private val originalPage:()->Unit={}) : View(context) {
+    private val feedback: () -> Unit = {}, private val reprocess:(Boolean)->Unit={}, private val storage:(Int)->Unit={}, private val originalPage:()->Unit={}, private val updateAction:(String)->Unit={}, private val originalFile:()->Unit={}, private val bookOpened:()->Unit={}) : View(context) {
     internal data class Frame(val page: Int, val fontStep: Int, val tools: Boolean, val optical: Boolean = true,
         val spacingStep: Int = 1, val columnMode: Int = 0, val menu: MenuPage = MenuPage.ROOT,
         val draftPage: Int = 0, val bookmarks: List<Int> = emptyList(), val bookmarkListPage: Int = 0,
         val face: Int = 0, val preset: Int = 0, val library: Boolean = false,
         val shelfFolder: String = "", val shelfPage: Int = 0, val notice: String = "", val busy: Boolean = false,
         val english: Boolean = false, val night: Boolean = false, val dark: Boolean = false, val lightStep: Int = 1,
-        val menuScroll: Float = 0f, val updateState: Int = 0, val updateVersion: String = "", val downloadUrl: String = "") {
+        val menuScroll: Float = 0f, val update:UpdateUi=UpdateUi(),val updateVersion:String="") {
         val appearance get() = InkAppearance(preset,night,dark,lightStep)
     }
     internal val files = BookFiles(context)
@@ -46,7 +46,8 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     internal val english get() = logical.english
     internal val nightEnabled get() = logical.night
     internal val darkEnabled get() = logical.dark
-    internal val updateState get() = logical.updateState
+    internal val updateState get() = when(logical.update.phase){UpdatePhase.CHECKING->1;UpdatePhase.CURRENT->2;UpdatePhase.AVAILABLE->3;UpdatePhase.ERROR->4;else->0}
+    internal val updateUi get()=logical.update
     internal val menuBounds get() = RectF(readingMenu.bounds)
     internal val currentViewport get() = viewport
     internal val anchorOffset get()=savedOffset
@@ -106,7 +107,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     internal val bookmarkOffsets get() = logical.bookmarks
     internal val draftPage get() = logical.draftPage
     val isRefreshing get() = response.active != null
-    val currentOffset get() = if (layouts.isEmpty()) savedOffset else layout(logical).offsetForPage(logical.page)
+    val currentOffset get() = savedOffset
     internal val currentBookLayout get() = layout(logical)
     internal val waveform get() = response
     internal val lightPose get() = surfaceLight.pose
@@ -117,7 +118,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     init {
         isFocusable = true; isClickable = true
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
-        setBackgroundColor(Color.rgb(224, 224, 223))
+        setBackgroundColor(Color.rgb(244,244,241))
         setOnApplyWindowInsetsListener { _,insets ->
             val stable=insets.getInsetsIgnoringVisibility(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
             val gestures=insets.getInsets(WindowInsets.Type.mandatorySystemGestures())
@@ -142,7 +143,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     private fun updateViewport() {
         if(width<=0 || height<=0) return
         val next=ReaderViewport.calculate(width,height,resources.displayMetrics.density,resources.configuration.fontScale,
-            safeInsets.left,safeInsets.top,safeInsets.right,safeInsets.bottom)
+            safeInsets.left+(12*resources.displayMetrics.density).toInt(),safeInsets.top+(12*resources.displayMetrics.density).toInt(),safeInsets.right+(12*resources.displayMetrics.density).toInt(),safeInsets.bottom+(12*resources.displayMetrics.density).toInt())
         if(next==viewport) return
         viewport=next;scale=next.density;vw=next.width;vh=next.height
         layouts.clear()
@@ -222,21 +223,33 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 item(t("设置", "Settings"), MenuAction.SETTINGS)), 10)
             MenuPage.SETTINGS -> MenuModel(t("设置", "Settings"),true,buildList {
                 add(MenuRow(t("语言", "Language"),controls=listOf(control("中文",MenuAction.LANGUAGE,0,!frame.english),control("English",MenuAction.LANGUAGE,1,frame.english))))
-                add(item(if(frame.updateState==1) t("正在检查更新…", "Checking updates…") else t("拉取更新", "Check for updates"),MenuAction.CHECK_UPDATE))
-                if(frame.updateState==3) add(item(t("下载 ${frame.updateVersion}", "Download ${frame.updateVersion}"),MenuAction.DOWNLOAD_UPDATE))
+                add(item(t("拉取更新", "Check for updates"),MenuAction.CHECK_UPDATE))
                 add(item(t("提交反馈", "Send feedback"),MenuAction.FEEDBACK))
                 add(item(t("保存与备份", "Storage & backup"),MenuAction.STORAGE))
                 if(LibraryWork.pending(context))add(item(t("继续上次整理", "Resume unfinished work"),MenuAction.RESUME))
                 add(MenuRow("Paperis ${BuildConfig.VERSION_NAME}"))
-                add(MenuRow(when(frame.updateState) {
-                    1 -> t("正在连接 GitHub…", "Connecting to GitHub…")
-                    2 -> t("当前已是最新可用预览", "You're up to date")
-                    3 -> t("发现可用更新", "An update is available")
-                    4 -> t("连接失败，请稍后重试", "Couldn't connect. Try again later.")
-                    5 -> t("暂时没有可下载安装包", "No downloadable release yet")
-                    else -> t("手动检查，不会自动安装", "Manual checks; no automatic install")
+            },10)
+            MenuPage.UPDATE -> MenuModel(t("应用更新", "App updates"),true,buildList {
+                val u=frame.update
+                add(MenuRow(t("当前版本", "Installed")+" · "+BuildConfig.VERSION_NAME))
+                if(frame.updateVersion.isNotBlank())add(MenuRow(t("可用版本", "Available")+" · "+frame.updateVersion))
+                add(MenuRow(when(u.phase){
+                    UpdatePhase.CHECKING->t("正在检查版本…","Checking releases…")
+                    UpdatePhase.AVAILABLE->t("发现新版本","New version available")
+                    UpdatePhase.DOWNLOADING->t("正在下载 · ${u.progress}%","Downloading · ${u.progress}%")
+                    UpdatePhase.VERIFYING->t("正在校验安装包…","Verifying APK…")
+                    UpdatePhase.READY->t("下载完成，可以安装","Download verified; ready to install")
+                    UpdatePhase.CURRENT->t("当前已是最新版本","You're up to date")
+                    UpdatePhase.ERROR->t("更新未完成，请重试","Update unavailable; retry")
+                    else->t("应用内下载更新","Download updates here")
                 }))
-                add(MenuRow(t("反馈可在应用内填写", "Write feedback inside the app")))
+                if(u.phase==UpdatePhase.AVAILABLE)add(item(t("下载更新", "Download update"),MenuAction.DOWNLOAD_UPDATE))
+                if(u.phase==UpdatePhase.READY)add(item(t("安装更新", "Install update"),MenuAction.INSTALL_UPDATE))
+                if(u.phase in setOf(UpdatePhase.DOWNLOADING,UpdatePhase.CHECKING,UpdatePhase.VERIFYING))add(item(t("暂停", "Pause"),MenuAction.CANCEL_UPDATE))
+                else add(item(t("重新检查", "Check again"),MenuAction.CHECK_UPDATE))
+                if(u.phase==UpdatePhase.ERROR)add(MenuRow(t("请检查网络或稍后重试","Check your connection and retry")))
+                if(u.message.contains("permission",true))add(MenuRow(t("请允许安装后返回此页面", "Allow installs, then return here")))
+                add(MenuRow(t("下载完成后打开系统安装确认", "Android confirms installation after download")))
             },10)
             MenuPage.IMPORT -> MenuModel(t("导入书籍", "Import books"),true,listOf(
                 item(t("＋ 从文件选择", "+ Choose files"),MenuAction.IMPORT_FILES),
@@ -266,6 +279,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                         add(item(t("重新 OCR（简 / 繁 / 英）", "Run OCR again (Chinese / English)"),MenuAction.OCR))
                         add(item(t("查看 PDF 原页", "View original PDF pages"),MenuAction.ORIGINAL))
                     }
+                    if(!files.hasOriginal(entry))add(item(t("补充原文件，恢复原目录与插图", "Attach original file"),MenuAction.ORIGINAL_FILE))
                     add(MenuRow(if(files.hasOriginal(entry))t("使用本机原文件，无需重复导入", "Uses the saved original; no reimport") else t("此旧书仅有文字，将恢复段落与目录", "Legacy text: rebuild paragraphs & contents")))
                     add(MenuRow(t("保留阅读位置与书签", "Keeps reading position and bookmarks")))
                     if(structure.ocrPages>0)add(MenuRow(t("离线识别 ${structure.ocrPages} 页 · ${structure.uncertainLines} 行建议核对", "OCR: ${structure.ocrPages} pages; ${structure.uncertainLines} lines to check")))
@@ -351,8 +365,11 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuAction.NIGHT -> { request(logical.copy(night=!logical.night),true); savePreferences() }
             MenuAction.DARK -> { request(logical.copy(dark=!logical.dark),true); savePreferences() }
             MenuAction.LIGHT -> { request(logical.copy(lightStep=command.value),true); savePreferences() }
-            MenuAction.CHECK_UPDATE -> if(logical.updateState!=1) { request(logical.copy(updateState=1)); checkUpdate() }
-            MenuAction.DOWNLOAD_UPDATE -> if(logical.downloadUrl.startsWith(ReaderUpdates.RELEASES+"/download/")) external(logical.downloadUrl)
+            MenuAction.CHECK_UPDATE -> { openMenu(MenuPage.UPDATE);checkUpdate() }
+            MenuAction.DOWNLOAD_UPDATE -> updateAction("download")
+            MenuAction.INSTALL_UPDATE -> updateAction("install")
+            MenuAction.CANCEL_UPDATE -> updateAction("cancel")
+            MenuAction.ORIGINAL_FILE -> originalFile()
             MenuAction.FEEDBACK -> { request(logical.copy(tools=false));feedback() }
             MenuAction.FONT_IMPORT -> importFont()
             MenuAction.FONT_FACE -> changeLayout(logical.copy(face=command.value))
@@ -373,7 +390,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuAction.DRAFT_UP -> request(logical.copy(draftPage = (logical.draftPage + 1).coerceAtMost(pageCount - 1)))
             MenuAction.PERCENT -> request(logical.copy(draftPage = ((pageCount - 1) * command.value / 100f).toInt()))
             MenuAction.GO -> jumpToPage(logical.draftPage)
-            MenuAction.CHAPTER, MenuAction.BOOKMARK_GO -> jumpToPage(layout(logical).pageForOffset(command.value))
+            MenuAction.CHAPTER, MenuAction.BOOKMARK_GO -> jumpToOffset(command.value)
             MenuAction.BOOKMARK_TOGGLE -> toggleBookmark()
             MenuAction.BOOKMARK_REMOVE -> saveBookmarks(logical.bookmarks - command.value)
             MenuAction.BOOKMARK_PREVIOUS -> request(logical.copy(bookmarkListPage = (logical.bookmarkListPage - 1).coerceAtLeast(0)))
@@ -392,6 +409,10 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         savedOffset=layout(logical).offsetForPage(target)
         request(logical.copy(page=target,tools=false))
     }
+    internal fun jumpToOffset(offset:Int) {
+        savedOffset=offset.coerceIn(0,book.lastIndex.coerceAtLeast(0))
+        request(logical.copy(page=layout(logical).pageForOffset(savedOffset),tools=false))
+    }
     private fun saveBookmarks(offsets: List<Int>) {
         val sorted = offsets.distinct().sorted()
         preferences.edit().putStringSet("bookmarks", sorted.map { it.toString() }.toSet()).apply()
@@ -401,10 +422,10 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         val page = layout(logical).pages[logical.page]
         val range = page.first().start until page.last().end
         if (logical.bookmarks.any { it in range }) saveBookmarks(logical.bookmarks.filterNot { it in range })
-        else saveBookmarks(logical.bookmarks + page.first().start)
+        else saveBookmarks(logical.bookmarks + savedOffset)
     }
     private fun changeLayout(next: Frame) {
-        val anchor = currentOffset
+        val anchor = savedOffset.coerceIn(0,book.lastIndex.coerceAtLeast(0))
         request(next.copy(page = layout(next).pageForOffset(anchor)))
         savedOffset=anchor
         savePreferences()
@@ -423,14 +444,14 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         if (response.advance(now)) material?.update(render(response.displayed),response.displayed.appearance)
         if(response.active==null) material?.settle()
         material?.draw(canvas, response.elapsed(now), response.active != null, response.active?.full == true,
-            if (reducedMotion || !logical.optical) 0f else surfaceLight.pose.x, if (reducedMotion || !logical.optical) 0f else surfaceLight.pose.y)
+            if (reducedMotion || !logical.optical) 0f else surfaceLight.pose.x, if (reducedMotion || !logical.optical) 0f else surfaceLight.pose.y, viewport)
         drawCount++
         if (response.active != null && active) postInvalidateOnAnimation()
     }
 
     private fun request(next: Frame, full: Boolean = false) {
         if (material == null) return
-        if(next.page!=logical.page && !next.library) savedOffset=layout(next).offsetForPage(next.page)
+        if(next.dark!=logical.dark)(context as? android.app.Activity)?.window?.insetsController?.setSystemBarsAppearance(if(next.dark)0 else android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS)
         logical = next
         val started = response.offer(next, SystemClock.uptimeMillis(), full, reducedMotion)
         if (started) {
@@ -445,6 +466,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         if (layouts.isEmpty()) return
         if(logical.library) { shelfPage(direction); return }
         val next = (logical.page + direction).coerceIn(layout(logical).pages.indices)
+        if(next!=logical.page)savedOffset=layout(logical).offsetForPage(next)
         if (next != logical.page || logical.tools) request(logical.copy(page = next, tools = false))
     }
 
@@ -512,8 +534,9 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         }
     }
 
-    internal fun updateResult(result: ReaderUpdates.Result) {
-        request(logical.copy(updateState=result.state,updateVersion=result.version,downloadUrl=result.url))
+    internal fun updateStatus(value:UpdateUi,version:String="") {
+        val next=logical.copy(update=value,updateVersion=version)
+        if(material==null){logical=next;response=InkResponse(next)}else request(next)
     }
 
     internal fun showFiles(notice: String = "", busy: Boolean = false) {
@@ -556,6 +579,14 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         logical=logical.copy(page=layout(logical).pageForOffset(savedOffset))
         displayRebuiltPage()
         files.preferences.edit().putString("lastBook",file.id).apply()
+        bookOpened()
+    }
+    internal fun reloadReading() {
+        files.reload();val updated=files.get(entry.id)?:return
+        entry=updated;preferences=files.reading(entry);book=files.text(entry);structure=files.structure(entry,book)
+        savedOffset=preferences.getInt("offset",0);layouts.clear()
+        logical=logical.copy(library=false,busy=false,tools=false,notice="",page=layout(logical).pageForOffset(savedOffset),bookmarks=preferences.getStringSet("bookmarks",emptySet()).orEmpty().mapNotNull {it.toIntOrNull()}.sorted())
+        displayRebuiltPage()
     }
     private fun displayRebuiltPage() {
         response=InkResponse(logical)
@@ -568,7 +599,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     }
     internal fun fontImported() {
         customFace=files.customTypeface()
-        val anchor=currentOffset; layouts.clear()
+        val anchor=savedOffset; layouts.clear()
         val next=logical.copy(face=2,tools=true,library=false,menu=MenuPage.LAYOUT,busy=false)
         logical=next.copy(page=layout(next).pageForOffset(anchor));savedOffset=anchor
         displayRebuiltPage(); savePreferences()

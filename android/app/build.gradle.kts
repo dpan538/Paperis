@@ -10,8 +10,8 @@ android {
         ndk { abiFilters += "arm64-v8a" }
         minSdk = 33
         targetSdk = 36
-        versionCode = 13
-        versionName = "0.1.0-preview.13"
+        versionCode = providers.gradleProperty("paperisVersionCode").orNull?.toInt() ?: 14
+        versionName = providers.gradleProperty("paperisVersionName").getOrElse("0.1.0-preview.14")
         testInstrumentationRunner = "com.inkreader.nativeink.InkEvidence"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
@@ -27,5 +27,7 @@ kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
 dependencies {
     implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.23.2")
+    implementation("androidx.core:core:1.17.0")
+    implementation("com.android.tools.build:apksig:8.13.2")
     testImplementation("junit:junit:4.13.2")
 }

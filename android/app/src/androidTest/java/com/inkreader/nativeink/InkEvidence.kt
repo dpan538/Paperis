@@ -74,6 +74,10 @@ class InkEvidence : Instrumentation() {
     override fun onCreate(arguments: Bundle?) { extraSuite=arguments?.getString("suite").orEmpty(); pickerOnly=arguments?.getString("suite")=="picker"; importsSuite=arguments?.getString("suite")=="imports" || pickerOnly; super.onCreate(arguments); start() }
     override fun onStart() {
         if(extraSuite=="source") { SourcePdfEvidence(this).run(); return }
+        if(extraSuite=="updates") { UpdateEvidence(this).run(); return }
+        if(extraSuite=="update-channel") { UpdateEvidence(this).runLive(); return }
+        if(extraSuite=="migration") { MigrationEvidence(this).run(); return }
+        if(extraSuite=="anchors") { AnchorEvidence(this).run(); return }
         if(extraSuite=="backup") { BackupExperienceEvidence(this).run(); return }
         if(extraSuite=="library") { LibraryEvidence(this).run(); return }
         if(extraSuite=="structure") { StructureEvidence(this).run(); return }

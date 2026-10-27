@@ -119,6 +119,7 @@ class ImportEvidence(private val host: Instrumentation,private val pickerOnly:Bo
             waitFor("duplicate and invalid imports") { ui { !activity.inkView.importBusy } };settle()
             verify("Duplicate, corrupt, unsupported and scan-only inputs leave valid files intact",ui { activity.inkView.files.list().size==count })
             capture("03-import-feedback")
+            clickSystemLabel("OK");settle()
             ui { activity.importTree(Uri.parse("content://io.github.dpan538.inkreader.fixtures/tree/root")) }
             waitFor("folder import") { ui { !activity.inkView.importBusy } };settle()
             val finalCount=ui { activity.inkView.files.list().size }

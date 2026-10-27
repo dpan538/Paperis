@@ -73,17 +73,22 @@ internal class ReadingExperienceEvidence(private val instrumentation: Instrument
             click("语言 English")
             verify("Language switches the actual native UI and persists",ui { activity.inkView.english } && targetContext.getSharedPreferences("files",0).getBoolean("english",false))
             capture("04-settings-en").recycle()
-            activity.updateSource={ ReaderUpdates.Result(3,"0.1.0-preview.999",ReaderUpdates.RELEASES+"/download/v0.1.0-preview.999/Paperis-0.1.0-preview.999.apk") }
+            val cert=AppUpdates.digest(targetContext.packageManager.getPackageInfo(targetContext.packageName,android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES).signingInfo!!.apkContentsSigners.single().toByteArray())
+            activity.appUpdates.releaseFeed={"""[{"tag_name":"v0.1.0-preview.999","assets":[{"name":"paperis-update.json","browser_download_url":"https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.999/paperis-update.json"},{"name":"Paperis-0.1.0-preview.999.apk","size":100,"browser_download_url":"https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.999/Paperis-0.1.0-preview.999.apk"}]}]"""}
+            activity.appUpdates.manifestText={JSONObject().put("schemaVersion",1).put("packageName",targetContext.packageName).put("apk","Paperis-0.1.0-preview.999.apk").put("versionCode",999).put("versionName","0.1.0-preview.999").put("sha256",AppUpdates.digest(ByteArray(100))).put("certificateSha256",cert).toString()}
+            activity.appUpdates.testDownload={_,_->java.io.ByteArrayInputStream(ByteArray(100))}
             click("Check for updates")
             waitFor("update available") { ui { activity.inkView.updateState==3 } };settle()
-            verify("Manual update callback exposes a real download action",ui { activity.inkView.createAccessibilityNodeInfo().actionList.any { it.label?.toString()=="Download 0.1.0-preview.999" } })
+            verify("Manual update callback exposes a real download action",ui { activity.inkView.createAccessibilityNodeInfo().actionList.any { it.label?.toString()=="Download update" } })
             var external:Intent?=null
             val monitor=object:Instrumentation.ActivityMonitor() {
                 override fun onStartActivity(intent:Intent):Instrumentation.ActivityResult? { external=intent;return Instrumentation.ActivityResult(Activity.RESULT_CANCELED,null) }
             }
             addMonitor(monitor)
-            click("Download 0.1.0-preview.999")
-            verify("Update download opens the release asset for user review",external?.action==Intent.ACTION_VIEW && external?.data?.host=="github.com" && external?.data?.path?.endsWith(".apk")==true)
+            click("Download update")
+            waitFor("invalid APK rejected") {ui {activity.inkView.updateUi.phase==UpdatePhase.ERROR}}
+            verify("APK download stays in the app and rejects a corrupt package",external==null&&ui {activity.inkView.menuPage==MenuPage.UPDATE})
+            ui {activity.inkView.openMenu(MenuPage.SETTINGS)};settle()
             external=null;click("Send feedback")
             verify("Feedback opens a native editor without a browser handoff",ui { activity.feedbackOpen } && external==null)
             removeMonitor(monitor)
@@ -127,9 +132,10 @@ internal class ReadingExperienceEvidence(private val instrumentation: Instrument
             verify("Feedback clears its draft only after independently verifying the receipt",ui { activity.readerFeedback.status=="received" && activity.readerFeedback.draft.isEmpty() } && requestCount==2)
             nativeClick("Back")
             ui { activity.inkView.openMenu(MenuPage.SETTINGS) };settle()
-            activity.updateSource={ error("offline fixture") };click("Check for updates")
+            activity.appUpdates.releaseFeed={ error("offline fixture") };click("Check for updates")
             waitFor("offline response") { ui { activity.inkView.updateState==4 } };settle()
-            verify("An update network failure leaves settings usable with retry",ui { activity.inkView.toolsOpen && activity.inkView.menuPage==MenuPage.SETTINGS })
+            verify("An update network failure leaves settings usable with retry",ui { activity.inkView.toolsOpen && activity.inkView.menuPage==MenuPage.UPDATE })
+            ui {activity.inkView.openMenu(MenuPage.SETTINGS)};settle()
             click("Language 中文");click("返回阅读菜单")
             click("夜间模式 关闭")
             ui { activity.inkView.toggleTools() };settle()

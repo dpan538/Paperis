@@ -169,7 +169,7 @@ internal object BookImporter {
             }
         }
         val css=manifest.values.filter {it.mime=="text/css"}.take(30).joinToString("\n") {a.read(resolve(opf,it.href))}
-        val assembly=BookAssembly();val anchors=mutableMapOf<String,Int>();var convertedBook=false
+        val assembly=BookAssembly();val anchors=mutableMapOf<String,Int>();val documents=mutableMapOf<String,List<SourceBlock>>();var convertedBook=false
         for((number,id) in spine.withIndex()) {
             progress(number+1,spine.size)
             val item=manifest[id]?:error("EPUB 的章节引用缺失");val path=resolve(opf,item.href)
@@ -188,7 +188,11 @@ internal object BookImporter {
                 }.getOrNull()
             }
             val tocStart=parsed.indexOfFirst {ChapterScanner.key(it.text) in setOf("目录","目錄","contents","tableofcontents")}
-            if(converted&&tocStart>=0) {
+            val proseStart=if(tocStart>=0)(tocStart+1 until parsed.size).firstOrNull {parsed[it].text.length>=80&&parsed[it].navigationTarget.isEmpty()&&parsed[it].text.any {c->c in "。！？.!?"}} else null
+            val linkedRows=if(tocStart>=0)(tocStart+1 until (proseStart?:parsed.size)).filter {parsed[it].navigationTarget.isNotEmpty()} else emptyList()
+            if(tocStart>=0&&linkedRows.size>=2) {
+                parsed=parsed.take(tocStart)+parsed.drop(linkedRows.last()+1)
+            } else if(converted&&tocStart>=0) {
                 val prose=(tocStart+1 until parsed.size).firstOrNull {j->val b=parsed[j];b.kind=="body"&&b.text.length>=20&&b.text.any {it in "，。！？、；"}&&!Regex("\\s+[0-9ivxlc]+$",RegexOption.IGNORE_CASE).containsMatchIn(b.text.trim())}
                 if(prose!=null) {
                     val start=(tocStart+1 until prose).lastOrNull {parsed[it].kind=="heading"&&!Regex("[0-9ivxlc]+$",RegexOption.IGNORE_CASE).containsMatchIn(parsed[it].text.trim())}?:prose
@@ -197,6 +201,7 @@ internal object BookImporter {
             }
             parsed=parsed.filterNot {ChapterScanner.key(it.text) in setOf("目录","目錄","contents","tableofcontents")}
             parsed.firstOrNull()?.anchors?.add(path)
+            val documentStart=assembly.blocks.size
             parsed.forEach { block->
                 val compact=ChapterScanner.key(block.text)
                 val titleKey=ChapterScanner.key(title.substringBefore('：').substringBefore(':'))
@@ -207,6 +212,7 @@ internal object BookImporter {
                     } else assembly.add(block)
                 }
             }
+            documents[path]=assembly.blocks.subList(documentStart,assembly.blocks.size).toList()
             require(assembly.blocks.sumOf {it.text.length}<=MAX_TEXT) {"正文超过 200 万字"}
         }
         // Remove converted running heads only when their non-page-number title exists as a real block.
@@ -220,14 +226,19 @@ internal object BookImporter {
             val withoutPage=key.replace(Regex("(?:[0-9]{1,4}|[ivxlcdm]{1,7})$"),"")
             b.text.length<45&&withoutPage!=key&&withoutPage.length>=2&&withoutPage in blockKeys
         }
-        assembly.blocks.forEachIndexed {index,b->b.anchors.forEach {anchors[it]=index}}
+        val positions=java.util.IdentityHashMap<SourceBlock,Int>()
+        assembly.blocks.forEachIndexed {index,b->positions[b]=index;b.anchors.forEach {anchors[it]=index}}
         val resolved=mutableListOf<Triple<String,Pair<Int,Int>,String>>()
         if(nav.size>1)for(ref in nav) {
             val path=runCatching {resolve(navPath,ref.href)}.getOrNull()?:continue
             val fragment=android.net.Uri.decode(ref.href.substringAfter('#',""))
-            var index=anchors[if(fragment.isEmpty())path else "$path#$fragment"]?:anchors[path]?:continue
+            val indices=documents[path]?.mapNotNull {positions[it]}.orEmpty();if(indices.isEmpty())continue
+            val span=indices.first()..indices.last()
+            val anchored=anchors[if(fragment.isEmpty())path else "$path#$fragment"]
+            var index=anchored?:anchors[path]?:continue
             val key=ChapterScanner.key(ref.label)
-            val exact=(index until minOf(index+8,assembly.blocks.size)).firstOrNull {ChapterScanner.key(assembly.blocks[it].text)==key}
+            val exact=(index..minOf(index+7,span.last)).firstOrNull {ChapterScanner.key(assembly.blocks[it].text)==key}
+            if(fragment.isNotEmpty()&&anchored==null&&exact==null)continue
             if(exact!=null)index=exact
             if(ref.label.isBlank()||ref.label.trim().lowercase() in setOf("cover","contents","table of contents","封面","目录","目錄"))continue
             val b=assembly.blocks[index]
@@ -248,7 +259,12 @@ internal object BookImporter {
             }
         }
         require(assembly.blocks.any {it.text.any {c->c.isLetterOrDigit()}||it.imageKey.isNotEmpty()}) {"未找到可重排正文"}
-        val result=assembly.finish(title,"EPUB",resolved)
+        val explicit=assembly.blocks.withIndex().filter {(it.value.explicitHeading||ChapterScanner.level(it.value.text)>0)&&it.value.level<=2&&ChapterScanner.key(it.value.text)!=ChapterScanner.key(title)}
+        val covered=explicit.count {b->resolved.any {it.second.first==b.index}}
+        val major=explicit.filter {it.value.level==1}
+        val allMajorCovered=major.size>=3&&major.all {b->resolved.any {it.second.first==b.index}}
+        val authoritative=resolved.size>=3&&explicit.isNotEmpty()&&(allMajorCovered||covered>=explicit.size*.7)
+        val result=assembly.finish(title,"EPUB",resolved,authoritative)
         require(result.text.length<=MAX_TEXT&&assembly.blocks.size>1) {"未找到可重排正文"}
         result
     }

@@ -10,6 +10,7 @@ internal object StructuredHtml {
         val clean=value.replace(Regex("<!--.*?-->|<(head|script|style|noscript)\\b[^>]*>.*?</\\1\\s*>",setOf(RegexOption.IGNORE_CASE,RegexOption.DOT_MATCHES_ALL)),"")
         val result=mutableListOf<SourceBlock>();val pending=mutableListOf<String>();val buffer=StringBuilder()
         var kind="body";var level=0;var continuation=false;var centered=false;var bold=0;var explicitHeading=false
+        var href="";var linked=0;val targets=mutableSetOf<String>()
         val styles=Regex("\\.([a-zA-Z0-9_-]+)\\s*\\{([^}]+)\\}").findAll(css).associate {it.groupValues[1] to it.groupValues[2]}
         fun style(tag:String)=attribute(tag,"style").orEmpty()+attribute(tag,"class").orEmpty().split(' ').joinToString(" "){styles[it].orEmpty()}
         fun font(tag:String)=Regex("font-size\\s*:\\s*([0-9.]+)em").find(style(tag))?.groupValues?.get(1)?.toFloatOrNull()?:1f
@@ -24,16 +25,17 @@ internal object StructuredHtml {
                     if(TextSemantics.metadata(t))kind="metadata"
                     else if(t.length<=80&&(centered||bold>=total*.8f)&&(TextSemantics.englishTitle(t)||TextSemantics.shortChinese(t))){kind="heading";level=2}
                 }
-                result+=SourceBlock(t,if(detected>0)"heading" else kind,if(detected>0)detected else level,pending.toMutableList(),continuation,explicitHeading=explicitHeading)
+                result+=SourceBlock(t,if(detected>0)"heading" else kind,if(detected>0)detected else level,pending.toMutableList(),continuation,explicitHeading=explicitHeading,navigationTarget=if(total>0&&linked>=total*.9f&&targets.size==1)targets.single() else "")
                 pending.clear()
             }
-            buffer.clear();kind="body";level=0;continuation=false;large=0;total=0;largest=1f;blockFont=1f;centered=false;bold=0;explicitHeading=false
+            buffer.clear();kind="body";level=0;continuation=false;large=0;total=0;largest=1f;blockFont=1f;centered=false;bold=0;explicitHeading=false;linked=0;targets.clear()
         }
         Regex("<[^>]+>|[^<]+",RegexOption.DOT_MATCHES_ALL).findAll(clean).forEach { match ->
             val token=match.value
             if(!token.startsWith('<')) {
                 if(skipped>0)return@forEach
                 buffer.append(token);val size=plain(token).count {!it.isWhitespace()};total+=size
+                if(href.isNotEmpty()){linked+=size;targets+=href}
                 val factor=fonts.lastOrNull()?:blockFont
                 if(weights.lastOrNull()==true)bold+=size
                 if(factor>=1.25f){large+=size;largest=maxOf(largest,factor)}
@@ -47,6 +49,7 @@ internal object StructuredHtml {
             if(!close&&toc){flush();if(!void)skipped=1;return@forEach}
             val block=tag in setOf("p","div","section","article","li","blockquote","pre","h1","h2","h3","h4","h5","h6","dt","dd","tr","figure","figcaption")
             if(block)flush()
+            if(tag=="a")href=if(close)"" else attribute(token,"href").orEmpty().takeUnless {it.contains(":")}.orEmpty()
             if(close&&tag in setOf("span","b","i","em","strong")&&fonts.isNotEmpty()){fonts.removeAt(fonts.lastIndex);if(weights.isNotEmpty())weights.removeAt(weights.lastIndex)}
             if(!close) {
                 if(tag in setOf("span","b","i","em","strong")){fonts+=maxOf(font(token),fonts.lastOrNull()?:blockFont);weights+=tag in setOf("b","strong")||weights.lastOrNull()==true||Regex("font-weight\\s*:\\s*(?:bold|[7-9]00)",RegexOption.IGNORE_CASE).containsMatchIn(style(token))}

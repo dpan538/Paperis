@@ -106,11 +106,12 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
             var last = first
             val top = layout.getLineTop(first)
             while (last + 1 < layout.lineCount && layout.getLineBottom(last + 1) - top <= bodyHeight) last++
-            headings.firstOrNull {(block,line)->block.level<=1&&line>first&&line<=last}?.let {last=it.second-1}
-            headings.filter {it.second in first..last}.forEach {(block,line)->
-                var after=layout.getLineForOffset((block.end-1).coerceAtLeast(block.start))+1
-                while(after<layout.lineCount&&text.substring(layout.getLineStart(after),layout.getLineEnd(after)).isBlank())after++
-                if(line>first&&after+1>last)last=line-1
+            headings.firstOrNull {(block,line)->block.level<=1&&line>first&&line<=last&&text.substring(layout.getLineStart(first),block.start).isNotBlank()}?.let {last=it.second-1}
+            for((block,line) in headings) {
+                if(line !in first..last)continue
+                val body=structure.blocks.firstOrNull {it.start>=block.end&&it.kind !in setOf("heading","subtitle","metadata","caption")}
+                val after=body?.let {layout.getLineForOffset(it.start)}?:layout.getLineForOffset((block.end-1).coerceAtLeast(block.start))
+                if(line>first&&after+1>last&&layout.getLineBottom(minOf(after+1,layout.lineCount-1))-layout.getLineTop(line)<=bodyHeight){last=line-1;break}
             }
             if (last > first + 1 && last + 1 < layout.lineCount) {
                 val next = layout.getLineStart(last + 1)
@@ -123,9 +124,9 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
             first = last + 1
         }
         val paged=mutableListOf<List<Column>>();val current=mutableListOf<Column>()
-        val majorStarts=headings.filter {it.first.level<=1}.map {it.second}.toSet()
         for(slice in slices) {
-            if(current.isNotEmpty()&&slice.firstLine in majorStarts){paged+=current.toList();current.clear()}
+            val startsMajor=headings.any {(block,line)->block.level<=1&&line in slice.firstLine..slice.lastLine&&text.substring(slice.start,block.start).isBlank()}
+            if(current.isNotEmpty()&&startsMajor){paged+=current.toList();current.clear()}
             current+=slice
             if(current.size==columns){paged+=current.toList();current.clear()}
         }

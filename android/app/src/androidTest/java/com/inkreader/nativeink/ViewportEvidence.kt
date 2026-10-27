@@ -37,6 +37,7 @@ internal class ViewportEvidence(private val host:Instrumentation) {
             targetContext.getSharedPreferences("reading",0).edit().clear().commit()
             activity=startActivitySync(Intent(targetContext,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity
             waitFor("initial layout") {ui {activity.inkView.pageCount>0}};settle()
+            verify("The top system information bar remains visible by default",ui {activity.inkView.rootWindowInsets.isVisible(WindowInsets.Type.statusBars())})
             ui {activity.inkView.jumpToPage(1)};settle()
             val anchor=ui {activity.inkView.anchorOffset}
             for((index,profile) in listOf(Triple(3408,2272,320),Triple(3240,2160,480),Triple(2272,3408,400),Triple(1920,1200,320),Triple(1280,800,320)).withIndex()) {
@@ -49,16 +50,23 @@ internal class ViewportEvidence(private val host:Instrumentation) {
                     val view=activity.inkView;val v=checkNotNull(view.currentViewport);val b=view.currentBookLayout
                     val stable=view.rootWindowInsets.getInsetsIgnoringVisibility(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
                     verify("Profile $index uses actual window density and reserves reported system areas",v.left>=stable.left && v.top>=stable.top && v.bottom>=stable.bottom && v.width==(w-v.left-v.right)/v.density)
+                    verify("Profile $index reserves a blank perimeter beyond every system inset",minOf(v.left-stable.left,v.top-stable.top,v.right-stable.right,v.bottom-stable.bottom)>=v.density*11f)
                     verify("Profile $index keeps the original source anchor after reflow",b.pages[view.currentPage].let {anchor in it.first().start until it.last().end})
                     verify("Profile $index fits every text column and native line",b.pages.flatten().all {b.layout.getLineBottom(it.lastLine)-b.layout.getLineTop(it.firstLine)<=b.bodyHeight} && (0 until b.layout.lineCount).all {b.layout.getLineRight(it)<=b.columnWidth+.5f})
                 }
-                capture("0$index-window-$w-$h-$dpi").recycle()
+                val windowShot=capture("0$index-window-$w-$h-$dpi")
+                if(index==0) {
+                    val point=ui {activity.inkView.screenPoint(activity.inkView.currentViewport!!.width/2,activity.inkView.currentBookLayout.bodyBottom+12)}
+                    val pixel=windowShot.getPixel(point.x.toInt(),point.y.toInt());val r=(pixel shr 16)and 255;val g=(pixel shr 8)and 255;val b=pixel and 255
+                    verify("Base paper is bright and neutral, with no magenta or blue channel bias",minOf(r,g,b)>232&&r>=g&&g>=b&&r-b<=3)
+                }
+                windowShot.recycle()
                 val p=ui {activity.inkView.menuButtonPoint};tap(p.x,p.y)
                 ui {val v=checkNotNull(activity.inkView.currentViewport);val r=activity.inkView.menuBounds;verify("Profile $index keeps menu bounds inside the actual safe window",r.left>=0 && r.top>=0 && r.right<=v.width && r.bottom<=v.height)}
                 capture("0$index-menu").recycle()
                 if(index==4) {
                     val r=ui {activity.inkView.menuBounds};val a=ui {activity.inkView.screenPoint(r.centerX(),r.bottom-20)};val z=ui {activity.inkView.screenPoint(r.centerX(),r.top+80)}
-                    repeat(2) {
+                    repeat(3) {
                         val start=SystemClock.uptimeMillis()
                         for(i in 0..14) {val action=if(i==0)MotionEvent.ACTION_DOWN else if(i==14)MotionEvent.ACTION_UP else MotionEvent.ACTION_MOVE;val e=MotionEvent.obtain(start,start+i*30L,action,a.x,a.y+(z.y-a.y)*i/14f,0);e.source=android.view.InputDevice.SOURCE_TOUCHSCREEN;uiAutomation.injectInputEvent(e,true);e.recycle()};settle()
                     }

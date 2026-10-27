@@ -8,6 +8,8 @@ Paperis original source code, documentation and authored examples are licensed u
 | Kotlin 2.2.0 standard library | Application runtime dependency | Apache License 2.0; [Kotlin source](https://github.com/JetBrains/kotlin/tree/v2.2.0) |
 | Kotlin Gradle plugin 2.2.0 | Build tooling | Apache License 2.0; [Kotlin source](https://github.com/JetBrains/kotlin/tree/v2.2.0) |
 | Android Gradle Plugin 8.13.2 | Build tooling | Apache License 2.0; [Android tools source](https://android.googlesource.com/platform/tools/base/) |
+| Android APK Signature Scheme library 8.13.2 | Cryptographic verification before handing an update to the Android installer | Apache License 2.0; [apksig source](https://android.googlesource.com/platform/tools/apksig/) |
+| AndroidX Core 1.17.0 | Read-only, permission-granted private update APK URI | Apache License 2.0; [AndroidX source](https://android.googlesource.com/platform/frameworks/support/) |
 | JetBrains Java annotations | Transitive annotations dependency | Apache License 2.0; [source](https://github.com/JetBrains/java-annotations) |
 | JUnit 4.13.2 | JVM tests only | Eclipse Public License 1.0; [license and source](https://github.com/junit-team/junit4/blob/r4.13.2/LICENSE-junit.txt) |
 | Hamcrest Core 1.3 | Transitive JVM test dependency | BSD 3-Clause; [license and source](https://github.com/hamcrest/JavaHamcrest/blob/hamcrest-java-1.3/LICENSE.txt) |

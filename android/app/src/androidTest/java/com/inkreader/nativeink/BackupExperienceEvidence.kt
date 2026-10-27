@@ -14,7 +14,7 @@ import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.atomic.AtomicReference
 
-/** Real DocumentsUI tree grant, foreground import/reflow and provider read-back. */
+/** Real DocumentsUI tree grant, in-app import/reflow and provider read-back. */
 internal class BackupExperienceEvidence(private val host:Instrumentation) {
     private lateinit var activity:MainActivity
     private val checks=JSONArray()
@@ -48,7 +48,8 @@ internal class BackupExperienceEvidence(private val host:Instrumentation) {
             activity=startActivitySync(Intent(targetContext,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity
             waitFor("native frame"){ui {activity.inkView.width>0}};SystemClock.sleep(2000)
             ui {activity.importUris(listOf(Uri.parse("content://io.github.dpan538.inkreader.fixtures/文本.pdf")))}
-            verify("Import starts a persistent foreground job immediately",LibraryWork.active&&LibraryWork.pending(targetContext))
+            waitFor("local import completed"){ui {!activity.inkView.importBusy&&activity.inkView.files.list().any {it.name=="文本.pdf"}}}
+            verify("Selected local files remain usable without a notification service",ui {activity.inkView.files.list().any {it.name=="文本.pdf"}}&&!LibraryWork.active)
             waitFor("service import"){!LibraryWork.active};settle()
             val file=ui {activity.inkView.files.list().first {it.name=="文本.pdf"}}
             ui {activity.inkView.openBook(file,activity.inkView.files.text(file));activity.inkView.performAccessibilityAction(InkView.ACTION_TOOLS,null)};settle()
@@ -56,7 +57,7 @@ internal class BackupExperienceEvidence(private val host:Instrumentation) {
             verify("Reading layout exposes manual reprocessing and original PDF pages",ui {val info=activity.inkView.createAccessibilityNodeInfo();info.text.toString().contains("查看 PDF 原页")&&info.text.toString().contains("无需重复导入")})
             command("重新整理段落与目录")
             waitFor("manual reprocess"){!LibraryWork.active};settle()
-            verify("Manual reprocessing completes without launching a file picker",ui {activity.inkView.libraryOpen&&activity.inkView.files.get(file.id)?.bundle!=file.bundle}&&uiAutomation.rootInActiveWindow?.packageName?.toString()==targetContext.packageName)
+            verify("Manual reprocessing resumes reading without launching a file picker",ui {!activity.inkView.libraryOpen&&activity.inkView.files.get(file.id)?.bundle!=file.bundle}&&uiAutomation.rootInActiveWindow?.packageName?.toString()==targetContext.packageName)
             ui {activity.inkView.performAccessibilityAction(InkView.ACTION_TOOLS,null)};settle();command("设置");command("保存与备份");capture(out,"02-storage-menu.png")
             val existingTree=LibraryBackup(targetContext,activity.inkView.files).tree
             command("选择本地备份文件夹")
@@ -79,11 +80,18 @@ internal class BackupExperienceEvidence(private val host:Instrumentation) {
                 val page=document.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(450,600,index+1).create());page.canvas.drawBitmap(bitmap,null,Rect(0,0,450,600),null);document.finishPage(page);bitmap.recycle()
             };scan.outputStream().use {document.writeTo(it)};document.close()
             ui {activity.importUris(listOf(Uri.fromFile(scan)))}
+            waitFor("scan journal"){LibraryWork.pending(targetContext)&&LibraryWork.active}
             val jobs=File(targetContext.filesDir,"import-jobs")
-            val scanJob=File(jobs,BookFiles.hashBytes((Uri.fromFile(scan).toString()+scan.name).toByteArray()))
+            val staged=JSONObject(LibraryWork.journal(targetContext).readText()).getJSONArray("items").getJSONObject(0)
+            val scanJob=File(jobs,BookFiles.hashBytes((staged.getString("uri")+scan.name).toByteArray()))
             var checkpoint:File?=null
             waitFor("first OCR checkpoint",120000) {checkpoint=File(scanJob,"assets/page-0.json").takeIf {it.isFile};checkpoint!=null&&LibraryWork.active}
             val stamp=checkpoint!!.lastModified()
+            uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)
+            waitFor("background pause",120000){!LibraryWork.active}
+            verify("Leaving the app pauses OCR without notifications and retains its checkpoint",LibraryWork.pending(targetContext)&&LibraryWork.mayResume(targetContext)&&checkpoint!!.isFile&&targetContext.getSystemService(android.app.NotificationManager::class.java).activeNotifications.isEmpty())
+            activity=startActivitySync(Intent(targetContext,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity
+            waitFor("automatic foreground resume",120000){LibraryWork.active}
             ui {activity.inkView.performAccessibilityAction(InkView.ACTION_TOOLS,null)};settle();command("暂停整理并保留进度")
             waitFor("paused OCR",120000){!LibraryWork.active}
             verify("Pause retains the durable original, job journal and finished OCR page",LibraryWork.pending(targetContext)&&checkpoint!!.isFile&&jobs.walkTopDown().any {it.name=="source"})

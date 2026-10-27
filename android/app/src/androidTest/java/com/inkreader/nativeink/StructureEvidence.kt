@@ -84,6 +84,17 @@ internal class StructureEvidence(private val host:Instrumentation) {
             verify("Explicit numeric section headings remain real destinations rather than disappearing",numberedHeadings.structure.chapters.any {it.title=="1"}&&numberedHeadings.structure.chapters.any {it.title=="2"})
             val supplemented=BookImporter.parse(epub("supplemented",nav3,body.replace("</body>","<p>致谢</p><p>谢谢所有读者。</p></body>"),true),"supplemented.epub")
             verify("A partial source directory is supplemented with actual back-matter headings",supplemented.structure.directorySource=="mixed"&&supplemented.structure.chapters.any {it.title=="致谢"&&it.source=="generated"}&&supplemented.structure.chapters.count {it.source=="epub"}==2)
+            val volumeTitles=listOf("卷一 山川","卷二 江海","卷三 天地")
+            val volumeProse="这是独立编写的章节正文，完整的句子应紧接本章标题，不应另起一张只有标题的空白页。".repeat(5)
+            val sourceNav="<ncx><navMap>"+volumeTitles.mapIndexed {i,t->"<navPoint><navLabel><text>$t</text></navLabel><content src=\"text/chapter%20one.xhtml#v$i\"/></navPoint>"}.joinToString("")+"</navMap></ncx>"
+            val volumeBody="<html><head><title>卷一 山川</title></head><body><h1>目录</h1>"+
+                volumeTitles.mapIndexed {i,t->"<p><a href=\"#v$i\">$t</a></p>"}.joinToString("")+
+                volumeTitles.mapIndexed {i,t->"<h1 id=\"v$i\">$t</h1><p>$volumeProse</p>"+if(i<2)"<h2>注释</h2><p>这里是本卷内部的注释。</p>" else ""}.joinToString("")+"</body></html>"
+            val volumes=BookImporter.parse(epub("source-volumes",sourceNav,volumeBody,false),"source-volumes.epub")
+            verify("Reliable source contents excludes printed link rows and internal note pseudochapters",volumes.structure.chapters.map {it.title}==volumeTitles&&volumeTitles.all {t->Regex(Regex.escape(t)).findAll(volumes.text).count()==1})
+            val volumeLayout=BookLayout(volumes.text,1704f,1000f,30f,structure=volumes.structure)
+            verify("Each source chapter destination contains its real heading and following prose",volumes.structure.chapters.all {chapter->val page=volumeLayout.pageText(volumeLayout.pageForOffset(chapter.offset));page.contains(chapter.title)&&page.contains(volumeProse.take(30))})
+            verify("Major chapter breaks never emit a duplicate heading-only page",volumeLayout.pages.all {page->val value=volumes.text.substring(page.first().start,page.last().end).trim();value !in volumeTitles})
             if(android.os.Build.VERSION.SDK_INT>=35) {
                 val pdf=File(dir,"geometry.pdf")
                 val doc=PdfDocument();try {

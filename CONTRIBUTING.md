@@ -49,7 +49,7 @@ Windows 使用 `gradlew.bat`。首次构建需要下载 Gradle 和 Maven 依赖�
 - 反馈：草稿恢复、失败保留、稳定重试标识与回执核验；测试使用模拟传输，不创建真实 Issue。
 - 记录：每本书的阅读位置、重启恢复和简单书签。
 
-项目包含 JVM 单元测试与原生仪器测试。分类检测、故障注入、修复反例和可重放矩阵可通过 `python3 tools/verify_reader.py --serial YOUR_EMULATOR_SERIAL --allow-reset-test-data --install` 执行；报告保存源位置、段落、排版坐标与修复规则，详见重排验证文档。仪器测试会重置阅读偏好并使用固定布局条件，请在专用模拟器或可清空的测试设备上运行。示例中的 `YOUR_TEST_SERIAL` 需替换为测试设备序列号。
+项目包含 JVM 单元测试与原生仪器测试。屏幕整屏测量、分类检测、故障注入、修复反例和可重放矩阵可通过 `python3 tools/verify_reader.py --serial YOUR_EMULATOR_SERIAL --allow-reset-test-data --install` 执行；报告保存源位置、段落、排版坐标与修复规则，详见重排验证文档。仪器测试会重置阅读偏好并使用固定布局条件，请在专用模拟器或可清空的测试设备上运行。示例中的 `YOUR_TEST_SERIAL` 需替换为测试设备序列号。
 
 ```sh
 cd android

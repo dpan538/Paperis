@@ -74,6 +74,7 @@ class InkEvidence : Instrumentation() {
     private var evidenceArguments=Bundle()
     override fun onCreate(arguments: Bundle?) {evidenceArguments=arguments?:Bundle();extraSuite=arguments?.getString("suite").orEmpty(); pickerOnly=arguments?.getString("suite")=="picker"; importsSuite=arguments?.getString("suite")=="imports" || pickerOnly; super.onCreate(arguments); start() }
     override fun onStart() {
+        if(extraSuite=="screen") { ScreenMaterialEvidence(this,evidenceArguments).run(); return }
         if(extraSuite=="source") { SourcePdfEvidence(this).run(); return }
         if(extraSuite=="updates") { UpdateEvidence(this).run(); return }
         if(extraSuite=="update-channel") { UpdateEvidence(this).runLive(); return }

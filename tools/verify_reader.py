@@ -11,6 +11,7 @@ import sys
 PACKAGE = "io.github.dpan538.inkreader.preview"
 RUNNER = PACKAGE + ".test/com.inkreader.nativeink.InkEvidence"
 SUITES = {
+    "screen": ("screen-verification", "screen-report.json"),
     "quality": ("quality-verification", "quality-report.json"),
     "reading-revision": ("reading-revision", "reading-revision-report.json"),
     "structure": ("structure-verification", "structure-report.json"),
@@ -38,6 +39,7 @@ def main():
     parser.add_argument("--suite", action="append", choices=SUITES)
     parser.add_argument("--private-corpus", type=Path, help="Optional local EPUB/PDF corpus and independent expectations.json/migration.json")
     parser.add_argument("--output", type=Path, default=Path("local/verification/reader-quality"))
+    parser.add_argument("--case", type=int, choices=range(900), metavar="0..899", help="Replay a reported material condition and its five-tone group")
     parser.add_argument("--seed", type=int, choices=range(10), help="Replay a reported fixture")
     parser.add_argument("--profile", type=int, choices=range(5), help="Replay a reported window profile")
     parser.add_argument("--font", type=int, choices=(26, 32, 40), help="Replay a reported text size")
@@ -67,7 +69,7 @@ def main():
         for file in sorted(args.private_corpus.iterdir()):
             if file.is_file() and (file.suffix.lower() in (".epub", ".pdf") or file.name in ("expectations.json", "migration.json")):
                 adb("push", str(file.resolve()), remote_root + "import-samples/" + file.name)
-    suites = args.suite or ["quality", "structure", "reflow", "reading-revision", "experience", "viewport", "comics300"]
+    suites = args.suite or ["screen", "quality", "structure", "reflow", "reading-revision", "experience", "viewport", "comics300"]
     if args.private_corpus and not args.suite:
         suites += ["documents", "anchors"]
         if (args.private_corpus / "migration.json").is_file():
@@ -84,7 +86,7 @@ def main():
         if suite == "updates":
             adb("shell", "appops", "set", PACKAGE, "REQUEST_INSTALL_PACKAGES", "deny")
         command = ["shell", "am", "instrument", "-w", "-e", "suite", suite]
-        for name in ("seed", "profile", "font", "columns"):
+        for name in ("seed", "profile", "font", "columns", "case"):
             if getattr(args, name) is not None:
                 command += ["-e", name, str(getattr(args, name))]
         command.append(RUNNER)
@@ -106,7 +108,7 @@ def main():
             if not record["passed"]:
                 context = result.get("failureContext", {})
                 replay = [sys.executable, str(Path(__file__).resolve()), "--adb", args.adb, "--serial", args.serial, "--allow-reset-test-data", "--suite", suite]
-                for name in ("seed", "profile", "font", "columns"):
+                for name in ("seed", "profile", "font", "columns", "case"):
                     if name in context:
                         replay += ["--" + name, str(context[name])]
                 record["replay"] = replay

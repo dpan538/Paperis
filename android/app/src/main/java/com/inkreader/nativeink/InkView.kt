@@ -26,8 +26,8 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         val face: Int = 0, val preset: Int = 0, val library: Boolean = false,
         val shelfFolder: String = "", val shelfPage: Int = 0, val notice: String = "", val busy: Boolean = false,
         val english: Boolean = false, val night: Boolean = false, val dark: Boolean = false, val lightStep: Int = 1,
-        val warmth:Int=2,val brightnessSet:Boolean=false, val menuScroll: Float = 0f, val update:UpdateUi=UpdateUi(),val updateVersion:String="") {
-        val appearance get() = InkAppearance(preset,night,dark,lightStep,warmth)
+        val warmth:Int=2,val brightnessSet:Boolean=false,val contrast:Int=1, val menuScroll: Float = 0f, val update:UpdateUi=UpdateUi(),val updateVersion:String="") {
+        val appearance get() = InkAppearance(preset,night,dark,lightStep,warmth,contrast,optical)
     }
     internal val files = BookFiles(context)
     private var entry = files.get(files.preferences.getString("lastBook", "").orEmpty()) ?: files.demo
@@ -44,6 +44,8 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     internal val currentPreset get() = logical.preset
     internal val importBusy get() = logical.busy
     internal val english get() = logical.english
+    internal val effectiveAppearance get()=appearance(logical)
+    internal val contrastStep get()=logical.contrast
     internal val warmthStep get()=logical.warmth
     internal val brightnessStep get()=logical.lightStep
     internal val brightnessOverridden get()=logical.brightnessSet
@@ -73,7 +75,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         face = files.preferences.getInt("face",0).coerceIn(0,if(customFace == null) 1 else 2),
         preset = files.preferences.getInt("preset",0).coerceIn(0,2), library = files.preferences.getString("lastBook",null) == null,
         english = files.preferences.getBoolean("english",false), night = files.preferences.getBoolean("night",false),
-        dark = files.preferences.getBoolean("dark",false), lightStep = files.preferences.getInt("light",1).coerceIn(0,2), warmth=files.preferences.getInt("warmth",2).coerceIn(0,4),brightnessSet=files.preferences.getBoolean("brightnessSet",false))
+        dark = files.preferences.getBoolean("dark",false), lightStep = files.preferences.getInt("light",1).coerceIn(0,2), warmth=files.preferences.getInt("warmth",2).coerceIn(0,4),brightnessSet=files.preferences.getBoolean("brightnessSet",false),contrast=files.preferences.getInt("contrast",1).coerceIn(0,2))
     private var response = InkResponse(logical)
     private var material: InkMaterial? = null
     private var viewport:ReaderViewport?=null
@@ -155,7 +157,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         response=InkResponse(logical)
         val headerY=layout(logical).headerY-11f
         menuHit.set(menuCenterX-40f,headerY-40f,menuCenterX+40f,headerY+40f)
-        material=InkMaterial().also { it.setInitial(render(logical),logical.appearance) }
+        material=InkMaterial().also { it.setInitial(render(logical),appearance(logical)) }
         invalidate()
     }
 
@@ -310,9 +312,9 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 MenuRow(t("类纸","Paper"),controls=listOf(control(if(frame.preset==2)t("已选","Selected")else t("选择","Choose"),MenuAction.PRESET,2))),
                 MenuRow(t("冷暖","Tone"),controls=listOf(t("冷","Cool"),t("微冷","Cooler"),t("中性","Neutral"),t("微暖","Warmer"),t("暖","Warm")).mapIndexed {i,title->control(title,MenuAction.WARMTH,i,i==frame.warmth)},controlsWidth=300f),
                 MenuRow(t("屏幕亮度","Brightness"),controls=listOf(control(t("低","Low"),MenuAction.LIGHT,0,frame.brightnessSet&&frame.lightStep==0),control(t("中","Mid"),MenuAction.LIGHT,1,frame.brightnessSet&&frame.lightStep==1),control(t("高","High"),MenuAction.LIGHT,2,frame.brightnessSet&&frame.lightStep==2),control(t("系统","Auto"),MenuAction.LIGHT,-1,!frame.brightnessSet))),
+                MenuRow(t("对比度","Contrast"),controls=listOf(t("低","Low"),t("中","Mid"),t("高","High")).mapIndexed {i,title->control(title,MenuAction.CONTRAST,i,frame.contrast==i)}),
                 MenuRow(t("夜间模式","Night light"),controls=listOf(control(if(frame.night)t("开启","On")else t("关闭","Off"),MenuAction.NIGHT))),
-                MenuRow(t("深色模式","Dark mode"),controls=listOf(control(if(frame.dark)t("开启","On")else t("关闭","Off"),MenuAction.DARK))),
-                MenuRow(t("三种材质 · 五档冷暖 · 三档亮度","3 surfaces · 5 tones · 3 light levels"))),rootRows)
+                MenuRow(t("深色模式","Dark mode"),controls=listOf(control(if(frame.dark)t("开启","On")else t("关闭","Off"),MenuAction.DARK)))),rootRows)
             MenuPage.SCREEN -> MenuModel(t("屏幕与刷新","Screen & refresh"), true, listOf(
                 MenuRow(t("倾角光感","Pose lighting"), controls=listOf(control(if(reducedMotion)t("随系统关闭","Reduced")else if(frame.optical)t("开启","On")else t("关闭","Off"),if(reducedMotion)null else MenuAction.OPTICAL))),
                 item(t("清屏刷新","Full refresh"),MenuAction.REFRESH)))
@@ -375,6 +377,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuAction.DARK -> { request(logical.copy(dark=!logical.dark),true); savePreferences() }
             MenuAction.LIGHT -> { request(logical.copy(lightStep=command.value.coerceIn(0,2),brightnessSet=command.value>=0),true); applyBrightness();savePreferences() }
             MenuAction.WARMTH -> {request(logical.copy(warmth=command.value.coerceIn(0,4)),true);savePreferences()}
+            MenuAction.CONTRAST -> {request(logical.copy(contrast=command.value.coerceIn(0,2)),true);savePreferences()}
             MenuAction.CHECK_UPDATE -> { openMenu(MenuPage.UPDATE);checkUpdate() }
             MenuAction.DOWNLOAD_UPDATE -> updateAction("download")
             MenuAction.INSTALL_UPDATE -> updateAction("install")
@@ -445,13 +448,15 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             .putInt("spacing", logical.spacingStep).putInt("columns", logical.columnMode)
             .putBoolean("optical", logical.optical).apply()
         files.preferences.edit().putInt("face",logical.face).putInt("preset",logical.preset)
-            .putBoolean("english",logical.english).putBoolean("night",logical.night).putBoolean("dark",logical.dark).putInt("light",logical.lightStep).putInt("warmth",logical.warmth).putBoolean("brightnessSet",logical.brightnessSet).apply()
+            .putBoolean("english",logical.english).putBoolean("night",logical.night).putBoolean("dark",logical.dark).putInt("light",logical.lightStep).putInt("warmth",logical.warmth).putBoolean("brightnessSet",logical.brightnessSet).putInt("contrast",logical.contrast).apply()
     }
+
+    private fun appearance(frame:Frame)=frame.appearance.copy(optical=frame.optical&&!reducedMotion)
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val now = SystemClock.uptimeMillis()
-        if (response.advance(now)) material?.update(render(response.displayed),response.displayed.appearance)
+        if (response.advance(now)) material?.update(render(response.displayed),appearance(response.displayed))
         if(response.active==null) material?.settle()
         material?.draw(canvas, response.elapsed(now), response.active != null, response.active?.full == true,
             if (reducedMotion || !logical.optical) 0f else surfaceLight.pose.x, if (reducedMotion || !logical.optical) 0f else surfaceLight.pose.y, viewport)
@@ -465,8 +470,8 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         logical = next
         val started = response.offer(next, SystemClock.uptimeMillis(), full, reducedMotion)
         if (started) {
-            if (reducedMotion) material?.setInitial(render(next),next.appearance)
-            else material?.update(render(response.displayed),response.displayed.appearance)
+            if (reducedMotion) material?.setInitial(render(next),appearance(next))
+            else material?.update(render(response.displayed),appearance(response.displayed))
         }
         invalidate()
         sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
@@ -490,7 +495,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         if (reducedMotion) return
         val next = logical.copy(optical = !logical.optical)
         if (next.optical && active) surfaceLight.start() else surfaceLight.stop()
-        request(next)
+        request(next,true)
         preferences.edit().putBoolean("optical", next.optical).apply()
     }
     fun changeFont(delta: Int) {
@@ -604,10 +609,10 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     }
     private fun displayRebuiltPage() {
         response=InkResponse(logical)
-        if(reducedMotion) material?.setInitial(render(logical),logical.appearance)
+        if(reducedMotion) material?.setInitial(render(logical),appearance(logical))
         else {
             response.offer(logical,SystemClock.uptimeMillis(),true)
-            material?.update(render(logical),logical.appearance)
+            material?.update(render(logical),appearance(logical))
         }
         invalidate()
     }
@@ -631,7 +636,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         }
         val unfinished = response.active != null
         response.settle()
-        if (unfinished && width > 0) material?.setInitial(render(logical),logical.appearance)
+        if (unfinished && width > 0) material?.setInitial(render(logical),appearance(logical))
     }
 
     fun resume() {
@@ -640,9 +645,9 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         val previousReducedMotion = reducedMotion
         reducedMotion = Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
         if (reducedMotion || !logical.optical) surfaceLight.stop() else surfaceLight.start()
-        if ((reducedMotion && response.active != null) || (previousReducedMotion != reducedMotion && logical.tools)) {
+        if ((reducedMotion && response.active != null) || previousReducedMotion != reducedMotion) {
             response.settle()
-            if (width > 0) material?.setInitial(render(logical),logical.appearance)
+            if (width > 0) material?.setInitial(render(logical),appearance(logical))
         }
         invalidate()
     }

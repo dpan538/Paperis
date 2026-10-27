@@ -36,6 +36,14 @@ python3 tools/verify_reader.py --serial YOUR_EMULATOR_SERIAL --allow-reset-test-
 
 脚本只操作指定模拟器，串行执行分类、结构、分页、交互、窗口和图文矩阵。每轮先清理同名旧报告，进程崩溃或缺少新报告均判失败；输出 `local/verification/reader-quality/summary.json`。首次失败保存输入、审计与源位置，并给出包含 seed/profile/font/columns 的重放命令。可用 `--private-corpus /path/to/authorized-books` 加入私有书籍及独立期望；原始证据保持本地。`--suite quality --seed 2 --profile 1 --font 32 --columns 2` 可单独重放一个布局条件。
 
+## 屏幕参数与整屏均匀性
+
+`screen` 通过真实硬件加速窗口与 PixelCopy 读回材质输出，使用 12×8 个位置相同的纸面、灰阶和实心墨块。三种材质、五档冷暖、三档灯光、夜间/深色和五个倾角组合成 900 个条件，三档对比度均衡穿插。另检查七个开启照明的轴向/对角倾角，以及 3408×2272、1440×960 和 960×1440 的实际渲染尺寸与密度。
+
+测量在独立的线性 sRGB 数值上进行：关闭光感时各纸面块亮度范围小于 0.002、色差通道范围小于 0.002；同组五档冷暖的平均亮度漂移小于 0.0008；实心墨块之间亮度范围小于 0.0001。开启光感仍须保持有界受光。检查灰阶顺序和细纹理存在，避免用纯色空帧通过。每帧带独立标记、等待提交并核对读回身份；标记区域不参与任何测量。注入空间渐变、不均匀墨色和随暖色增加亮度的错误着色器，确认检测器会拒绝错误。数值是数字画面的相对量，不是实机亮度、色温或色准测量。
+
+`screen-report.json` 记录全部条件和失败位置；`--suite screen --case 0` 可重放报告中该条件所属的五档冷暖组、尺寸与校准控制。原生控件另验证对比度的可发现性、持久恢复、阅读锚点、照明关闭与系统减少动态。报告、合成测试卡和截图仍保持本地。冷暖的亮度约束按 [Android AGSL 的线性颜色空间](https://developer.android.com/reference/android/graphics/RuntimeShader#agsl-and-color-spaces) 处理；验收计算独立于着色器实现。
+
 ## 原生分页与位置
 
 在 Android 的真实 `StaticLayout` 上组合横竖屏、三种字号、三档行距、单双栏和宋体/黑体，共 72 种条件，使用中英文混排、长链接、中文标点与补充平面字符检查：

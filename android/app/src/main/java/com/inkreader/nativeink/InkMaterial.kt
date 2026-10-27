@@ -52,19 +52,24 @@ internal class InkMaterial {
     }
 
     fun draw(canvas: Canvas, elapsedMs: Long, active: Boolean, full: Boolean, tiltX: Float, tiltY: Float, viewport:ReaderViewport?=null) {
-        runtime.setFloatUniform("resolution", canvas.width.toFloat(), canvas.height.toFloat())
+        // The current viewport owns the window extent, including native recording surfaces.
+        val width=viewport?.windowWidth?:canvas.width;val height=viewport?.windowHeight?:canvas.height
+        require(width>0&&height>0)
+        runtime.setFloatUniform("resolution", width.toFloat(), height.toFloat())
         runtime.setFloatUniform("viewPose", tiltX, tiltY)
-        runtime.setFloatUniform("surfaceBounds",viewport?.left?.toFloat()?:0f,viewport?.top?.toFloat()?:0f,(canvas.width-(viewport?.right?:0)).toFloat(),(canvas.height-(viewport?.bottom?:0)).toFloat())
+        runtime.setFloatUniform("surfaceBounds",viewport?.left?.toFloat()?:0f,viewport?.top?.toFloat()?:0f,(width-(viewport?.right?:0)).toFloat(),(height-(viewport?.bottom?:0)).toFloat())
         runtime.setFloatUniform("surfaceScale",viewport?.density?:1f)
         runtime.setFloatUniform("readingPresets", previousAppearance.preset.toFloat(), targetAppearance.preset.toFloat())
         runtime.setFloatUniform("nightLight",if(previousAppearance.night) 1f else 0f,if(targetAppearance.night) 1f else 0f)
         runtime.setFloatUniform("darkMode",if(previousAppearance.dark) 1f else 0f,if(targetAppearance.dark) 1f else 0f)
         runtime.setFloatUniform("temperature",previousAppearance.warmth.toFloat(),targetAppearance.warmth.toFloat())
+        runtime.setFloatUniform("contrastLevel",previousAppearance.contrast.toFloat(),targetAppearance.contrast.toFloat())
+        runtime.setFloatUniform("surfaceLighting",if(previousAppearance.optical)1f else 0f,if(targetAppearance.optical)1f else 0f)
         runtime.setFloatUniform("lightLevel",previousAppearance.light.toFloat(),targetAppearance.light.toFloat())
         runtime.setFloatUniform("elapsed", elapsedMs.toFloat())
         runtime.setFloatUniform("active", if (active) 1f else 0f)
         runtime.setFloatUniform("fullRefresh", if (full) 1f else 0f)
-        canvas.drawRect(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat(), paint)
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
     }
 
     companion object {
@@ -83,6 +88,8 @@ internal class InkMaterial {
             uniform float2 darkMode;
             uniform float2 lightLevel;
             uniform float2 temperature;
+            uniform float2 contrastLevel;
+            uniform float2 surfaceLighting;
             uniform float elapsed;
             uniform float active;
             uniform float fullRefresh;
@@ -98,26 +105,27 @@ internal class InkMaterial {
                     float outsideDark=darkMode.y;
                     return half4(half3(mix(float3(0.957,0.957,0.950),float3(0.085),outsideDark)),1.0);
                 }
-                // Small sub-pixel refraction separates the stationary top film from ink below.
-                // Page layout is unchanged; every ink/history sample shares the same optical ray.
-                float2 inkPoint = p + viewPose * (0.22 * scale);
-                float oldInk = 1.0 - oldPage.eval(inkPoint).r;
-                float newInk = 1.0 - newPage.eval(inkPoint).r;
-                float2 uv = (p-surfaceBounds.xy) / (surfaceBounds.zw-surfaceBounds.xy);
-                float grain = structure.eval(p * 0.93).r;
-                float local = structure.eval(p / 3.2).g;
-                // Material changes arrive with ink deposition, after the erase phase.
-                // Fixed capsule thresholds keep this a spatial settling response, not a UI fade.
+                // All material lengths use density-independent coordinates.
+                float2 dp = (p-surfaceBounds.xy)/scale;
+                float grain = structure.eval(dp*1.86).r;
+                float local = structure.eval(dp/1.6).g;
                 float settling = active > 0.5 && fullRefresh > 0.5
                     ? smoothstep(630.0 + local * 55.0, 1000.0 + local * 20.0, elapsed) : 1.0;
+                float optical = mix(surfaceLighting.x,surfaceLighting.y,settling);
+                float2 pose = viewPose*optical;
+                float2 inkPoint = p + pose*(0.22*scale);
+                float oldInk = 1.0-oldPage.eval(inkPoint).r;
+                float newInk = 1.0-newPage.eval(inkPoint).r;
+                float2 uv = (p-surfaceBounds.xy)/(surfaceBounds.zw-surfaceBounds.xy);
                 float3 beforeMode = float3(readingPresets.x < 0.5 ? 1.0 : 0.0,
                     readingPresets.x > 0.5 && readingPresets.x < 1.5 ? 1.0 : 0.0, readingPresets.x > 1.5 ? 1.0 : 0.0);
                 float3 afterMode = float3(readingPresets.y < 0.5 ? 1.0 : 0.0,
                     readingPresets.y > 0.5 && readingPresets.y < 1.5 ? 1.0 : 0.0, readingPresets.y > 1.5 ? 1.0 : 0.0);
-                float3 modes = mix(beforeMode, afterMode, settling);
+                float3 modes = mix(beforeMode,afterMode,settling);
                 float night = mix(nightLight.x,nightLight.y,settling);
                 float dark = mix(darkMode.x,darkMode.y,settling);
-                float lampPower = mix(lightLevel.x,lightLevel.y,settling) * 0.25 + 0.5;
+                float lampPower = mix(lightLevel.x,lightLevel.y,settling)*0.25+0.5;
+                float contrast = mix(contrastLevel.x,contrastLevel.y,settling)-1.0;
                 float ink = newInk;
 
                 if (active > 0.5 && fullRefresh < 0.5) {
@@ -142,101 +150,76 @@ internal class InkMaterial {
                     else ink = newInk * smoothstep(690.0, 1000.0, t);
                 }
 
-                ink = clamp(ink, 0.0, 1.0);
-                // The ink is an underlying pigment plane, separate from the protective surface.
-                float quantized = floor(ink * 15.0 + grain) / 15.0;
-                float cleanCapsules = structure.eval(inkPoint / 0.86 + float2(97.0, 41.0)).b;
-                float gentleCapsules = (structure.eval(inkPoint / 1.35 + float2(57.0, 171.0)).g
-                    + structure.eval(inkPoint * 0.91 + float2(117.0, 27.0)).b) * 0.5;
-                float paperCapsules = structure.eval(inkPoint / 1.10 + float2(97.0, 41.0)).b;
-                float capsuleCores = dot(modes, float3(smoothstep(0.18, 0.86, cleanCapsules),
-                    smoothstep(0.12, 0.88, gentleCapsules), smoothstep(0.22, 0.80, paperCapsules)));
-                float thickness = structure.eval(inkPoint / (72.0 * scale) + float2(31.0, 73.0)).g;
-                float matte = structure.eval(p / (1.25 * scale) + float2(113.0, 9.0)).r;
-                float3 keyLight = normalize(float3(-0.38 + viewPose.x * 0.45, -0.62 + viewPose.y * 0.45, 0.90));
-                float illumination = 0.006 + dot(float2(0.5) - uv, -keyLight.xy) * 0.010 - 0.002 * uv.x * uv.y;
-                float whiteGrain = dot(modes, float3(0.009, 0.011, 0.018));
-                float substrate = dot(modes,float3(0.938,0.916,0.926)) + illumination + (capsuleCores - 0.5) * whiteGrain + (thickness - 0.5) * 0.006;
-                // Ink density varies within strokes as well as along anti-aliased contours.
-                float pigment = dot(modes, float3(0.067, 0.114, 0.091)) + capsuleCores * dot(modes, float3(0.025,0.022,0.047));
-                float inkPlane = mix(substrate, pigment, clamp(quantized, 0.0, 1.0));
+                ink = clamp(ink,0.0,1.0);
+                float quantized = clamp(floor(ink*15.0+grain)/15.0,0.0,1.0);
 
-                // Etched micro-normal field. Features stay fixed; their light response changes
-                // with the actual tablet pose instead of playing an animated noise texture.
-                float2 etchedPoint = p / 1.8 + float2(41.0, 131.0);
-                float slopeX = structure.eval(etchedPoint + float2(0.65, 0.0)).r - structure.eval(etchedPoint - float2(0.65, 0.0)).r;
-                float slopeY = structure.eval(etchedPoint + float2(0.0, 0.65)).r - structure.eval(etchedPoint - float2(0.0, 0.65)).r;
-                float3 normal = normalize(float3(-slopeX * 0.24, -slopeY * 0.24, 1.0));
-                float3 viewDirection = normalize(float3(-viewPose * 0.44, 1.0));
-                float3 halfDirection = normalize(keyLight + viewDirection);
-                float softLobe = pow(max(dot(normal, halfDirection), 0.0), 11.0);
-                float fresnel = 0.035 + 0.965 * pow(1.0 - max(dot(normal, viewDirection), 0.0), 5.0);
-                float bandCoordinate = uv.x * 0.66 + uv.y * 0.34;
-                float bandCenter = 0.27 + viewPose.x * 0.14 + viewPose.y * 0.09;
-                float diffuseReflection = exp(-pow((bandCoordinate - bandCenter) / 0.52, 2.0));
-                float veil = 0.003 + 0.006 * diffuseReflection + softLobe * fresnel * 0.08;
-                float microLight = (dot(normal, keyLight) - keyLight.z) * 0.045;
-                float surfaceGrain = (grain - 0.5) * 0.008 + (matte - 0.5) * 0.004 + microLight;
-                surfaceGrain *= dot(modes,float3(0.60,0.72,1.0));
-                // Interlocked pulp varies independently from the capsule field.
-                float fibers = structure.eval(float2(p.x/(31.0*scale),p.y/(1.6*scale))+float2(59.0,7.0)).g
-                    + structure.eval(float2(p.x/(1.7*scale),p.y/(23.0*scale))+float2(19.0,127.0)).b - 1.0;
-                float pulp = (fibers * 0.010 + (thickness-0.5)*0.009) * modes.z;
-                float visibleInk = mix(inkPlane, 0.96, veil) + surfaceGrain + pulp * (1.0-quantized*0.7);
-                float darkSubstrate = 0.082 + illumination*0.18 + surfaceGrain*0.6 + pulp*0.6;
-                float palePigment = 0.78 + capsuleCores*0.045;
-                float darkPlane = mix(darkSubstrate,palePigment,clamp(quantized,0.0,1.0));
-                visibleInk = mix(visibleInk,darkPlane,dark);
+                // The substrate, neutral pigment and surface microstructure have separate roles.
+                // Texture never changes solid ink density or the selected contrast level.
+                float paperBase = mix(dot(modes,float3(0.944,0.905,0.932)),0.082,dark);
+                float frontEnergy = night*(0.12+0.48*lampPower);
+                paperBase += (1.0-paperBase)*frontEnergy*mix(1.0,0.06,dark);
+                float pigment = mix(0.085-contrast*0.045,0.80+contrast*0.06,dark);
 
-                // The optical window is under the front surface. Its edge exposes a thin
-                // bond line, shallow sidewall and directional contact shadow, not a tablet body.
-                float inset = 2.2 * scale;
-                float left = p.x - surfaceBounds.x - inset;
-                float top = p.y - surfaceBounds.y - inset;
-                float right = surfaceBounds.z - inset - p.x;
-                float bottom = surfaceBounds.w - inset - p.y;
-                float shadow = (0.012 + max(-keyLight.y, 0.0) * 0.008) * exp(-max(top, 0.0) / (7.5 * scale))
-                    + (0.010 + max(-keyLight.x, 0.0) * 0.006) * exp(-max(left, 0.0) / (5.5 * scale))
-                    + (0.004 + max(keyLight.y, 0.0) * 0.005) * exp(-max(bottom, 0.0) / (3.2 * scale))
-                    + (0.004 + max(keyLight.x, 0.0) * 0.005) * exp(-max(right, 0.0) / (3.2 * scale));
-                visibleInk -= shadow * mix(1.0,0.22,dark);
+                float matte = structure.eval(dp*1.6+float2(113.0,9.0)).r;
+                float2 etchedPoint = dp/0.9+float2(41.0,131.0);
+                float slopeX = structure.eval(etchedPoint+float2(0.65,0.0)).r-structure.eval(etchedPoint-float2(0.65,0.0)).r;
+                float slopeY = structure.eval(etchedPoint+float2(0.0,0.65)).r-structure.eval(etchedPoint-float2(0.0,0.65)).r;
+                float3 normal = normalize(float3(-slopeX*0.24,-slopeY*0.24,1.0));
+                float3 keyLight = normalize(float3(float2(-0.38,-0.62)*optical+pose*0.45,0.90));
+                float illumination = optical*(dot(float2(0.5)-uv,-keyLight.xy)*0.0015-0.0003*(uv.x*uv.y-0.25));
+                float bandCoordinate = uv.x*0.66+uv.y*0.34;
+                float bandCenter = 0.27+pose.x*0.14+pose.y*0.09;
+                float reflection = optical*(exp(-pow((bandCoordinate-bandCenter)/0.52,2.0))-0.65)*0.0007;
+                float microLight = optical*(dot(normal,keyLight)-keyLight.z)*0.012;
+                // Paired samples have zero expected mean; no broad thickness clouds or fiber bands.
+                float2 fiberX = float2(dp.x/12.0,dp.y/0.8)+float2(59.0,7.0);
+                float2 fiberY = float2(dp.x/0.85,dp.y/11.0)+float2(19.0,127.0);
+                float fibers = structure.eval(fiberX).g-structure.eval(fiberX+float2(0.0,1.0)).g
+                    +structure.eval(fiberY).b-structure.eval(fiberY+float2(1.0,0.0)).b;
+                float surfaceGrain = (grain-0.5)*dot(modes,float3(0.003,0.004,0.007))
+                    +(matte-0.5)*0.0015+fibers*0.0015*modes.z+microLight;
+                surfaceGrain *= mix(1.0,0.60,dark);
+                float paper = paperBase+illumination+reflection+surfaceGrain;
 
-                float distance = windowDistance(p, inset, 2.6 * scale);
-                float frontEdge = windowDistance(p, 0.5 * scale, 1.2 * scale);
-                float outerSurface = mix(0.951,0.115,dark) + illumination * mix(1.6,0.25,dark) + surfaceGrain;
-                float laminate = mix(0.931,0.145,dark) + illumination * mix(0.8,0.2,dark) + surfaceGrain;
-                // Separate, softly lit front edge and darker lower bond seam.
-                float frontHighlight = 0.012 * exp(-abs(frontEdge + 0.45 * scale) / (0.75 * scale));
-                float frontShadow = 0.012 * exp(-max(-frontEdge, 0.0) / (1.8 * scale));
-                float rim = mix(outerSurface, laminate, 1.0 - smoothstep(-0.65 * scale, 0.65 * scale, frontEdge));
-                rim += frontHighlight - frontShadow;
-                float bondLine = mix(0.035,0.015,dark) * exp(-abs(distance) / (0.6 * scale));
-                rim -= bondLine;
-                float innerHighlight = 0.018 * exp(-abs(distance + 1.2 * scale) / (0.55 * scale));
-                visibleInk += innerHighlight;
-                float window = 1.0 - smoothstep(-0.7 * scale, 0.7 * scale, distance);
-                float tone = mix(rim, visibleInk, window);
-                tone = mix(tone,tone * 0.965 + 0.014,modes.y*(1.0-dark));
-                // A normal front light is mixed inside the guide before it reaches the page.
-                // Keep only a very broad, sub-percent extraction variation: no exposed LEDs,
-                // periodic scallops, bright edge dots or local light-leak defects.
-                float guideUniformity = 1.0 - uv.y*0.006 + uv.x*0.003;
-                float frontEnergy = (0.12+0.48*lampPower)*guideUniformity;
-                float scattering = mix(0.035+0.965*(1.0-clamp(quantized,0.0,1.0)),
-                    0.06+0.44*clamp(quantized,0.0,1.0),dark);
-                // Front light adds reflected illumination inside the optical window.
-                // It must brighten paper at every level, without dimming the ambient substrate.
-                float nightTone = tone+(1.0-tone)*frontEnergy*scattering*window;
-                tone = mix(tone,nightTone,night);
-                // Warmth belongs to the light substrate, not colored pigment or colored UI.
-                // Dark ink stays neutral; the small channel spread never becomes a sepia wash.
-                float paperWeight = smoothstep(0.18, 0.78, tone);
-                // Keep the default near-neutral; comfort is a small substrate bias, not a yellow overlay.
-                float warmth = dot(modes,float3(0.12,0.65,0.34)) + night*0.10;
-                float userTone=(mix(temperature.x,temperature.y,settling)-2.0)*0.5;
-                float3 temperatureTint=userTone>=0.0?float3(0.018,0.006,-0.030)*userTone:float3(0.016,0.005,-0.018)*userTone;
-                float3 paperTone = float3(tone) + (float3(0.003, 0.002, -0.002) * warmth+temperatureTint) * paperWeight;
-                return half4(half3(clamp(paperTone, 0.0, 1.0)), 1.0);
+                // Shallow laminate depth stays at the perimeter, outside the uniform reading field.
+                float inset = 2.2*scale;
+                float left = p.x-surfaceBounds.x-inset;
+                float top = p.y-surfaceBounds.y-inset;
+                float right = surfaceBounds.z-inset-p.x;
+                float bottom = surfaceBounds.w-inset-p.y;
+                float shadow = (0.012+max(-keyLight.y,0.0)*0.008)*exp(-max(top,0.0)/(7.5*scale))
+                    +(0.010+max(-keyLight.x,0.0)*0.006)*exp(-max(left,0.0)/(5.5*scale))
+                    +(0.004+max(keyLight.y,0.0)*0.005)*exp(-max(bottom,0.0)/(3.2*scale))
+                    +(0.004+max(keyLight.x,0.0)*0.005)*exp(-max(right,0.0)/(3.2*scale));
+                paper -= shadow*mix(1.0,0.22,dark);
+                float distance = windowDistance(p,inset,2.6*scale);
+                float frontEdge = windowDistance(p,0.5*scale,1.2*scale);
+                float outerSurface = mix(0.951,0.115,dark)+illumination+surfaceGrain;
+                float laminate = mix(0.931,0.145,dark)+illumination+surfaceGrain;
+                float rim = mix(outerSurface,laminate,1.0-smoothstep(-0.65*scale,0.65*scale,frontEdge));
+                rim += 0.012*exp(-abs(frontEdge+0.45*scale)/(0.75*scale))
+                    -0.012*exp(-max(-frontEdge,0.0)/(1.8*scale))
+                    -mix(0.035,0.015,dark)*exp(-abs(distance)/(0.6*scale));
+                paper += 0.018*exp(-abs(distance+1.2*scale)/(0.55*scale));
+                float window = 1.0-smoothstep(-0.7*scale,0.7*scale,distance);
+                paper = mix(rim,paper,window);
+                float tone = clamp(mix(paper,pigment,quantized*window),0.0,1.0);
+
+                // A zero-luminance direction in linear sRGB changes warmth without brightness.
+                // One gamut bound for the whole surface prevents local channel clipping/patches.
+                float lowY = toLinearSrgb(float3(clamp(paperBase-0.014,0.0,1.0))).r;
+                float highY = toLinearSrgb(float3(clamp(max(paperBase+0.014,0.98),0.0,1.0))).r;
+                float gamut = clamp(min(lowY,1.0-highY)/0.075,0.0,1.0);
+                float warmth = (mix(temperature.x,temperature.y,settling)-2.0)*0.5
+                    +dot(modes,float3(0.012,0.065,0.034))+night*0.010;
+                float3 neutral = toLinearSrgb(float3(tone));
+                float3 tint = float3(0.020,0.00102041387,-0.069)*warmth*gamut*(1.0-quantized)*(1.0-dark)*window;
+                float3 encoded = fromLinearSrgb(neutral+tint);
+                // Unbiased output rounding preserves the mean across warmth steps on 8-bit surfaces.
+                // Shared-channel noise stays achromatic; solid pigment is never dithered.
+                float roundingNoise = structure.eval(floor(p)+float2(0.5)).r-0.5;
+                encoded += float3(roundingNoise/255.0)*(1.0-quantized);
+                return half4(half3(clamp(encoded,0.0,1.0)),1.0);
             }
         """.trimIndent()
     }

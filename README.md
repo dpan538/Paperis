@@ -8,9 +8,9 @@ Paperis 纸墨 是一款专为 Pad 与平板设备打造的极简水墨屏风质
 
 ## 下载
 
-[![下载 Android APK](https://img.shields.io/badge/下载_Android_APK-0.1.0--preview.15-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.15/Paperis-0.1.0-preview.15.apk)
+[![下载 Android APK](https://img.shields.io/badge/下载_Android_APK-0.1.0--preview.16-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.16/Paperis-0.1.0-preview.16.apk)
 
-**[直接下载 Paperis 纸墨 APK](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.15/Paperis-0.1.0-preview.15.apk)** · [查看版本与校验值](https://github.com/dpan538/Paperis/releases)
+**[直接下载 Paperis 纸墨 APK](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.16/Paperis-0.1.0-preview.16.apk)** · [查看版本与校验值](https://github.com/dpan538/Paperis/releases)
 
 Android 13+，面向平板的预览版本，使用项目的预览开发签名。下载后允许浏览器安装应用；已有同签名预览可覆盖升级。小米 Pad 9 Pro Max 的实机验证仍待完成。
 
@@ -26,8 +26,9 @@ Android 13+，面向平板的预览版本，使用项目的预览开发签名。
 打开应用，整页即是安静的墨水屏阅读界面。正文、文件列表和省略号菜单共用同一层温润的黑白灰表面。新安装默认使用白瓷，夜间前光与深色模式关闭；已有模式选择会保留。
 
 - **层次与质感**：微暖纸灰底材、哑光表面、细密颗粒与下沉墨层；柔和的受光随设备姿态轻微变化，可在菜单中关闭。
-- **阅读预设**：白瓷 / 护眼 / 类纸集中提供五档冷暖、低 / 中 / 高三档应用窗口亮度与跟随系统选项，夜间前光和深色模式也在同一页。亮度只作用于当前应用，不需要修改系统设置权限。
-- **三种材质**：白瓷呈现细润致密的浅色表面与清晰墨迹；护眼降低视觉对比、保留轻微暖灰漫散射；类纸增加交错纤维般的微结构与墨色沉积差异。护眼为视觉预设。
+- **阅读预设**：白瓷 / 护眼 / 类纸集中提供五档冷暖、低 / 中 / 高三档对比度、三档应用窗口亮度与跟随系统选项，夜间前光和深色模式也在同一页。亮度只作用于当前应用，不需要修改系统设置权限。
+- **三种材质**：白瓷呈现细润致密的浅色表面与清晰墨迹；护眼降低视觉对比、保留轻微暖灰漫散射；类纸保留细密交错纤维般的微结构。护眼为视觉预设。
+- **独立的屏幕参数**：冷暖变换保持数字画面的线性亮度，调对比度只改变中性墨色；细纹理不改变实心字迹浓度。关闭倾角光感同时停用斜向光照与反光带，保留窄边缘的层次。
 - **有节奏的刷新**：翻页采用短暂的墨迹转换，完成后只保留当前页，不累积旧字或定期强制黑闪；切换预设、书籍或字体经过清除、墨迹沉积与稳定的过程。支持手动完整刷新，并尊重系统关闭动画的设置。
 - **章节与目录**：读取 EPUB 2 NCX / EPUB 3 导航与原文锚点，保留层级；缺少有效目录时离线识别正文标题，明确标注“自动识别目录”。目录可以滚动，点击跳转到真实正文位置。
 - **原生文本重排**：调整字体、字号、行距与横屏单双栏；竖屏自动单栏。用正文字符位置保留阅读进度，连续放大、缩小或旋转时跟随同一段文字。

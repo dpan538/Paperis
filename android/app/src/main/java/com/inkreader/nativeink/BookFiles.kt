@@ -18,7 +18,12 @@ internal class BookFiles(private val context: Context) {
     private val index = AtomicFile(File(directory, "index.json"))
     val preferences = context.getSharedPreferences("files", Context.MODE_PRIVATE)
     private val entries = mutableListOf<BookFile>()
-    init {
+    private val bitmaps=object:LinkedHashMap<String,android.graphics.Bitmap>(4,.75f,true) {
+        override fun removeEldestEntry(eldest:MutableMap.MutableEntry<String,android.graphics.Bitmap>?)=size>4
+    }
+    init { reload() }
+    @Synchronized fun reload() {
+        entries.clear();bitmaps.clear()
         runCatching {
             val array = JSONArray(index.readFully().toString(Charsets.UTF_8))
             repeat(array.length()) {
@@ -31,13 +36,10 @@ internal class BookFiles(private val context: Context) {
     val demo = BookFile("sample", "山窗随记.txt", "山窗随记 · 试读", "TXT", "")
     @Synchronized fun list(): List<BookFile> = entries.toList() + demo
     @Synchronized fun get(id: String) = list().find { it.id == id }
-    private fun bundle(entry:BookFile)=File(directory,entry.bundle.takeIf {it.matches(Regex("[a-f0-9]{64}-v2-[a-z0-9-]{36}"))}?:"${entry.id}-v2")
+    internal fun bundle(entry:BookFile)=File(directory,entry.bundle.takeIf {it.matches(Regex("[a-f0-9]{64}-v2-[a-z0-9-]{36}"))}?:"${entry.id}-v2")
     fun text(entry: BookFile): String = if (entry.id == "sample") context.assets.open("sample.txt").bufferedReader().use { it.readText().trim() }
         else (File(bundle(entry),"text.txt").takeIf {it.isFile}?:File(directory,"${entry.id}.txt")).readText()
     fun structure(entry:BookFile,text:String)=if(entry.id=="sample")BookStructure.infer(text) else runCatching {BookStructure.read((File(bundle(entry),"structure.json").takeIf {it.isFile}?:File(directory,"${entry.id}.json")).readText(),text)}.getOrElse {BookStructure.infer(text)}
-    private val bitmaps=object:LinkedHashMap<String,android.graphics.Bitmap>(4,.75f,true) {
-        override fun removeEldestEntry(eldest:MutableMap.MutableEntry<String,android.graphics.Bitmap>?)=size>4
-    }
     fun imageSize(entry:BookFile,key:String):Pair<Int,Int>? {
         if(!key.matches(Regex("[a-f0-9]{64}")))return null
         val options=android.graphics.BitmapFactory.Options().apply {inJustDecodeBounds=true}
@@ -78,56 +80,83 @@ internal class BookFiles(private val context: Context) {
             }
         } ?: error("无法读取所选文件")
     }
-    /** Returns false for an exact duplicate; incomplete parsing never changes the index. */
+    fun hasOriginal(entry:BookFile)=File(bundle(entry),"original").isFile
+    fun original(entry:BookFile)=File(bundle(entry),"original").takeIf {it.isFile}
+    internal fun jobDirectory(key:String)=File(context.filesDir,"import-jobs/$key").also {it.mkdirs()}
+    /** The original is staged on durable storage, not the evictable cache. */
     @Synchronized fun import(uri:Uri,folder:String="",providedName:String?=null,rebuild:Boolean=false,progress:(Int,Int)->Unit={_,_->}):Boolean {
         val name=providedName?:displayName(uri)
-        val temp = File.createTempFile("import-", ".data", context.cacheDir)
+        val job=jobDirectory(hashBytes((uri.toString()+name).toByteArray()))
+        val source=File(job,"source")
+        if(!source.isFile) {
+            val partial=File(job,"source.partial");try {copy(uri,partial,BookImporter.MAX_BYTES)}catch(t:Throwable){partial.delete();throw t}
+            check(partial.renameTo(source)) {"无法保存原文件"}
+        }
         try {
-            copy(uri, temp, BookImporter.MAX_BYTES)
-            val hash = MessageDigest.getInstance("SHA-256").let { digest ->
-                temp.inputStream().use { input -> val b = ByteArray(32768); while (true) { val n = input.read(b); if (n < 0) break; digest.update(b, 0, n) } }
-                digest.digest().joinToString("") { "%02x".format(it) }
-            }
-            val existing=entries.firstOrNull {it.id==hash}
-            if(!rebuild&&existing?.structured==true&&File(bundle(existing),"structure.json").isFile)return false
-            val parsed = BookImporter.parse(temp,name,progress)
-            val stage=java.nio.file.Files.createTempDirectory(directory.toPath(),".$hash-stage-").toFile()
-            val target=File(directory,"$hash-v2-${java.util.UUID.randomUUID()}")
-            var committed=false
-            val oldText=existing?.let {text(it)}
-            try {
-                File(stage,"text.txt").writeText(parsed.text)
-                File(stage,"structure.json").writeText(parsed.structure.json().toString())
-                temp.copyTo(File(stage,"original"))
-                if(parsed.images.isNotEmpty()) {
-                    val images=File(stage,"images").also {it.mkdirs()}
-                    parsed.images.forEach {(key,data)->File(images,key).writeBytes(data)}
-                }
-                try {
-                    check(stage.renameTo(target)) {"无法保存本地书籍"}
-                    val entry=BookFile(hash,name,parsed.title,parsed.format,existing?.folder?:folder,parsed.structure.chapters.size,true,target.name)
-                    val oldIndex=entries.indexOfFirst {it.id==hash}
-                    if(oldIndex>=0)entries[oldIndex]=entry else entries+=entry
-                    try {writeIndex();committed=true} catch(t:Throwable) {if(oldIndex>=0)entries[oldIndex]=checkNotNull(existing) else entries.remove(entry);throw t}
-                    if(oldText!=null&&oldText!=parsed.text) {
-                        val saved=reading(entry);val previous=saved.getInt("offset",0).coerceIn(0,oldText.lastIndex.coerceAtLeast(0))
-                        val needle=oldText.substring(previous,minOf(previous+120,oldText.length)).filterNot {it.isWhitespace()}.take(48)
-                        val normalized=StringBuilder();val positions=IntArray(parsed.text.length);var count=0
-                        parsed.text.forEachIndexed {at,c->if(!c.isWhitespace()){positions[count++]=at;normalized.append(c)}}
-                        val match=if(needle.length>=12)normalized.indexOf(needle) else -1
-                        val offset=if(match>=0)positions[match] else (previous.toLong()*parsed.text.length/oldText.length.coerceAtLeast(1)).toInt()
-                        val bookmarks=saved.getStringSet("bookmarks",emptySet()).orEmpty().mapNotNull {it.toIntOrNull()}.mapNotNull {oldOffset->
-                            val at=oldOffset.coerceIn(0,oldText.lastIndex);val sample=oldText.substring(at,minOf(at+120,oldText.length)).filterNot {it.isWhitespace()}.take(48)
-                            val found=if(sample.length>=12)normalized.indexOf(sample) else -1
-                            if(found>=0)positions[found].toString() else (at.toLong()*parsed.text.length/oldText.length.coerceAtLeast(1)).toInt().coerceIn(0,parsed.text.lastIndex).toString()
-                        }.toSet()
-                        saved.edit().putInt("offset",offset.coerceIn(0,parsed.text.lastIndex)).putStringSet("bookmarks",bookmarks).apply()
-                    }
-                    existing?.let {bundle(it)}?.takeIf {it!=target}?.deleteRecursively()
-                } catch(t:Throwable) {if(!committed)target.deleteRecursively();throw t}
-            } finally {stage.deleteRecursively()}
-            return true
-        } finally { temp.delete() }
+            val hash=hashFile(source);val existing=entries.firstOrNull {it.id==hash}
+            if(!rebuild&&existing?.structured==true&&File(bundle(existing),"structure.json").isFile){job.deleteRecursively();return false}
+            val parsed=BookImporter.parse(source,name,progress,context,File(job,"assets"))
+            check(!Thread.currentThread().isInterrupted) {"已暂停，进度已保留"}
+            commit(hash,name,existing?.folder?:folder,parsed,source,existing)
+            job.deleteRecursively();return true
+        } catch(t:Throwable) {throw t} // Keep the durable original/checkpoints for an explicit retry.
+    }
+    @Synchronized fun reprocess(id:String,forceOcr:Boolean=false,progress:(Int,Int)->Unit={_,_->}):Boolean {
+        val entry=checkNotNull(get(id));require(id!="sample") {"试读书无需重新排版"}
+        val raw=original(entry);val job=jobDirectory("reflow-$id-${if(forceOcr)"ocr" else "auto"}")
+        val parsed=if(raw!=null)BookImporter.parse(raw,entry.name,progress,context,File(job,"assets"),forceOcr)
+            else legacyReflow(text(entry),entry.title,entry.format)
+        check(!Thread.currentThread().isInterrupted) {"已暂停，进度已保留"}
+        commit(id,entry.name,entry.folder,parsed,raw,entry)
+        job.deleteRecursively();return raw!=null
+    }
+    private fun legacyReflow(value:String,title:String,format:String):ParsedBook {
+        val out=BookAssembly()
+        value.replace("\r","").split(Regex("\\n+" )).filter {it.isNotBlank()}.forEach {line->
+            val t=line.trim();val level=ChapterScanner.level(t);val metadata=TextSemantics.metadata(t)
+            if(t.matches(Regex("[0-9]{1,4}")))return@forEach
+            val prev=out.blocks.lastOrNull()
+            if(level==0&&!metadata&&prev?.kind=="body"&&prev.text.last() !in "。！？.!?：:”’」』"&&t.length>2) {
+                prev.text=BookImporter.joinProse(prev.text,t);out.repairedBreaks++
+            } else out.add(SourceBlock(t,if(level>0||t==title)"heading" else if(metadata)"metadata" else "body",if(t==title)1 else level))
+        }
+        return out.finish(title,format)
+    }
+    internal fun commit(id:String,name:String,folder:String,parsed:ParsedBook,raw:File?,existing:BookFile?=get(id)):BookFile {
+        val stage=java.nio.file.Files.createTempDirectory(directory.toPath(),".$id-stage-").toFile()
+        val target=File(directory,"$id-v2-${java.util.UUID.randomUUID()}");var committed=false
+        val oldText=existing?.let {text(it)}
+        try {
+            File(stage,"text.txt").writeText(parsed.text)
+            File(stage,"structure.json").writeText(parsed.structure.json().toString())
+            raw?.copyTo(File(stage,"original"))
+            parsed.images.forEach {(key,file)-> require(key.matches(Regex("[a-f0-9]{64}")));val dest=File(stage,"images/$key");dest.parentFile?.mkdirs();file.copyTo(dest)}
+            check(stage.renameTo(target)) {"无法保存本地书籍"}
+            val entry=BookFile(id,name,parsed.title,parsed.format,folder,parsed.structure.chapters.size,true,target.name)
+            val at=entries.indexOfFirst {it.id==id};if(at>=0)entries[at]=entry else entries+=entry
+            try {writeIndex();committed=true} catch(t:Throwable) {if(at>=0)entries[at]=checkNotNull(existing) else entries.remove(entry);throw t}
+            if(oldText!=null&&oldText!=parsed.text)remap(entry,oldText,parsed.text)
+            bitmaps.clear()
+            existing?.let {bundle(it)}?.takeIf {it!=target}?.deleteRecursively()
+            return entry
+        } finally {stage.deleteRecursively();if(!committed)target.deleteRecursively()}
+    }
+    private fun remap(entry:BookFile,old:String,new:String) {
+        val saved=reading(entry);val normalized=StringBuilder();val positions=IntArray(new.length);var n=0
+        new.forEachIndexed {at,c->if(!c.isWhitespace()){positions[n++]=at;normalized.append(c)}}
+        fun map(value:Int):Int {
+            val at=value.coerceIn(0,old.lastIndex.coerceAtLeast(0));val needle=old.substring(at,minOf(at+120,old.length)).filterNot {it.isWhitespace()}.take(48)
+            val match=if(needle.length>=12)normalized.indexOf(needle) else -1
+            return (if(match>=0)positions[match] else (at.toLong()*new.length/old.length.coerceAtLeast(1)).toInt()).coerceIn(0,new.lastIndex.coerceAtLeast(0))
+        }
+        saved.edit().putInt("offset",map(saved.getInt("offset",0))).putStringSet("bookmarks",saved.getStringSet("bookmarks",emptySet()).orEmpty().mapNotNull {it.toIntOrNull()}.map {map(it).toString()}.toSet()).commit()
+    }
+    companion object {
+        fun hashBytes(bytes:ByteArray)=MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") {"%02x".format(it)}
+        fun hashFile(file:File):String {
+            val digest=MessageDigest.getInstance("SHA-256");file.inputStream().use {input->val b=ByteArray(32768);while(true){val n=input.read(b);if(n<0)break;digest.update(b,0,n)}}
+            return digest.digest().joinToString("") {"%02x".format(it)}
+        }
     }
     private fun writeIndex() {
         val array = JSONArray()

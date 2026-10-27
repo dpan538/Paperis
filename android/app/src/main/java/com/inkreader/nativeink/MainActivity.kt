@@ -14,7 +14,8 @@ import android.window.OnBackInvokedDispatcher
 class MainActivity : Activity() {
     lateinit var inkView: InkView; private set
     private val imports = Executors.newSingleThreadExecutor()
-    private var importing = false
+    private var localTask = false
+    private val importing get()=localTask||LibraryWork.active
     private val updates = Executors.newSingleThreadExecutor()
     internal lateinit var readerFeedback:ReaderFeedback
     private var feedbackDialog:FeedbackDialog?=null
@@ -25,12 +26,15 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.setDecorFitsSystemWindows(false)
         readerFeedback=ReaderFeedback(applicationContext) { feedbackDialog?.refresh() }
-        inkView = InkView(this, ::chooseFiles, ::chooseFont, ::checkUpdates, ::openExternal, ::openFeedback)
+        inkView = InkView(this, ::chooseFiles, ::chooseFont, ::checkUpdates, ::openExternal, ::openFeedback, ::reprocess, ::storage, ::originalPage)
         setContentView(inkView)
         fullscreen()
         onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
             if (!inkView.backFromTools()) { if (!inkView.libraryOpen) inkView.showFiles() else finish() }
         }
+        LibraryWork.observer={notice,busy->if(!isDestroyed){if(!busy)inkView.files.reload();inkView.showFiles(notice,busy)}}
+        if(LibraryWork.active)inkView.showFiles(LibraryWork.message,true)
+        else if(LibraryWork.pending(this))inkView.showFiles(inkView.text("上次整理未完成，可在设置中继续","Unfinished work can be resumed in Settings"))
         acceptIntent(intent)
     }
 
@@ -67,6 +71,11 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode,resultCode,data)
         if (resultCode != RESULT_OK || data == null) return
+        if(requestCode==14) {
+            data.data?.let {uri->runCatching {LibraryBackup(this,inkView.files).choose(uri);storage(1)}.onFailure {inkView.showFiles(it.message.orEmpty())}}
+            return
+        }
+        data.data?.let {uri->runCatching {contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)}}
         if (requestCode == 13) {
             val uri = data.data ?: return
             background(inkView.text("正在载入字体…","Loading font…")) { inkView.files.importFont(uri); inkView.text("字体已载入","Font loaded") to true }
@@ -82,27 +91,54 @@ class MainActivity : Activity() {
             Intent.ACTION_SEND_MULTIPLE -> intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)?.let(::importUris)
         }
     }
-    internal fun importUris(uris: List<Uri>) { background(inkView.text("正在导入 ${uris.size} 个文件…","Importing ${uris.size} files…")) {
-        require(uris.size <= 100) { "一次最多导入 100 个文件，请分批选择" }
-        importBatch(uris.map { it to "" }) to false
-    } }
-    internal fun importTree(uri:Uri) { background(inkView.text("正在读取文件夹…","Reading folder…")) { importBatch(treeFiles(uri)) to false } }
-    private fun importBatch(documents: List<Pair<Uri,String>>): String {
-        var added = 0; var duplicates = 0; val errors = mutableListOf<String>()
-        var chapterCount=0;var lastProgress=0L
-        documents.forEachIndexed {index,(uri,folder)->
-            val name=runCatching {inkView.files.displayName(uri)}.getOrDefault("文件")
-            fun progress(part:Int,total:Int) {
-                val now=android.os.SystemClock.uptimeMillis()
-                if(part!=1&&part!=total&&now-lastProgress<800)return
-                lastProgress=now
-                val message=inkView.text("正在整理 ${index+1}/${documents.size} · $name\n识别段落与目录 $part / $total","Preparing ${index+1}/${documents.size} · $name\nReading structure $part / $total")
-                runOnUiThread {if(!isDestroyed)inkView.showFiles(message,true)}
-            }
-            runCatching { inkView.files.import(uri,folder,progress=::progress).also {changed->if(changed)chapterCount+=inkView.files.list().firstOrNull {it.name==name}?.chapters?:0} }.onSuccess { if(it) added++ else duplicates++ }
-                .onFailure { errors += "${runCatching { inkView.files.displayName(uri) }.getOrDefault("文件")}：${ReaderErrors.message(it.message,inkView.english)}" }
+    internal fun importUris(uris:List<Uri>) {
+        if(importing)return
+        if(uris.size>100){inkView.showFiles("一次最多导入 100 个文件");return}
+        startImport(uris.map {it to ""})
+    }
+    private fun startImport(items:List<Pair<Uri,String>>) {
+        val values=org.json.JSONArray();items.forEach {(uri,folder)->values.put(org.json.JSONObject().put("uri",uri.toString()).put("folder",folder))}
+        startWork(org.json.JSONObject().put("kind","import").put("items",values))
+    }
+    internal fun importTree(uri:Uri) {
+        if(importing)return
+        background(inkView.text("正在读取文件夹…","Reading folder…")) {
+            val documents=treeFiles(uri)
+            runOnUiThread {startImport(documents)}
+            "" to false
         }
-        return inkView.text("导入 $added · 已存在 $duplicates · 失败 ${errors.size}\n目录已整理 · $chapterCount 个章节","Imported $added · Duplicates $duplicates · Failed ${errors.size}\nContents prepared · $chapterCount chapters") + errors.firstOrNull()?.let { "\n$it" }.orEmpty()
+    }
+    private fun startWork(job:org.json.JSONObject?=null) {
+        if(LibraryWork.active)return
+        if(checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED&&!inkView.files.preferences.getBoolean("notificationAsked",false)) {
+            inkView.files.preferences.edit().putBoolean("notificationAsked",true).apply()
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),15)
+        }
+        job?.put("english",inkView.english)
+        LibraryWork.start(this,job)
+        inkView.showFiles(inkView.text("正在准备…","Preparing…"),true)
+    }
+    private fun reprocess(forceOcr:Boolean) {
+        if(importing)return
+        inkView.saveReadingState()
+        startWork(org.json.JSONObject().put("kind","reflow").put("id",inkView.currentBookId).put("ocr",forceOcr))
+    }
+    private fun storage(action:Int) {
+        if(importing)return
+        when(action) {
+            0->{val picker=Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                LibraryBackup(this,inkView.files).tree?.let {tree->picker.putExtra(DocumentsContract.EXTRA_INITIAL_URI,DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree)))}
+                startActivityForResult(picker,14)}
+            1->{inkView.saveReadingState();startWork(org.json.JSONObject().put("kind","backup"))}
+            2->startWork(org.json.JSONObject().put("kind","restore"))
+            3->if(LibraryWork.pending(this))startWork()
+        }
+    }
+    private fun originalPage() {
+        val entry=inkView.files.get(inkView.currentBookId)?:return
+        val file=inkView.files.original(entry)?:return
+        val page=inkView.currentStructure.blocks.lastOrNull {it.start<=inkView.currentOffset&&it.page>=0}?.page?:0
+        SourcePdfDialog(this,file,page).show()
     }
     private fun treeFiles(tree: Uri): List<Pair<Uri,String>> {
         val result = mutableListOf<Pair<Uri,String>>(); var visited = 0
@@ -128,19 +164,19 @@ class MainActivity : Activity() {
     }
     private fun background(message: String, task: () -> Pair<String,Boolean>) {
         if (importing) return
-        importing=true; inkView.showFiles(message,true)
+        localTask=true; inkView.showFiles(message,true)
         imports.execute {
             val result=runCatching(task)
             runOnUiThread {
                 if(!isDestroyed) {
-                    importing=false
-                    result.onSuccess { (notice,font) -> if(font) inkView.fontImported() else inkView.showFiles(notice) }
+                    localTask=false
+                    result.onSuccess { (notice,font) -> if(font) inkView.fontImported() else if(!LibraryWork.active) inkView.showFiles(notice) }
                         .onFailure { inkView.showFiles(ReaderErrors.message(it.message,inkView.english)) }
                 }
             }
         }
     }
-    override fun onDestroy() { feedbackDialog?.dismiss();if(::readerFeedback.isInitialized)readerFeedback.close();imports.shutdown(); updates.shutdown(); super.onDestroy() }
+    override fun onDestroy() { LibraryWork.observer=null;feedbackDialog?.dismiss();if(::readerFeedback.isInitialized)readerFeedback.close();imports.shutdown(); updates.shutdown(); super.onDestroy() }
 
     private fun fullscreen() {
         window.insetsController?.apply {

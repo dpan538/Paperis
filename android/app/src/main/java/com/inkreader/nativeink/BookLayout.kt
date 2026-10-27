@@ -49,6 +49,7 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
                 }
                 "subtitle"->{setSpan(RelativeSizeSpan(1.16f),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);setSpan(android.text.style.AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)}
                 "image"->imageSize(block.image)?.let {(w,h)->setSpan(Illustration(w,h,{imageProvider(block.image)},textWidth,(bodyHeight-font*spacing-12).toInt()),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)}
+                "metadata","caption"->setSpan(RelativeSizeSpan(.88f),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 "quote","verse"->setSpan(LeadingMarginSpan.Standard((font*.8f).toInt()),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 else->{
                     val first=text.substring(block.start,minOf(block.end,block.start+16))

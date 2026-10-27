@@ -42,7 +42,7 @@ Windows 使用 `gradlew.bat`。首次构建需要下载 Gradle 和 Maven 依赖�
 请只记录实际执行的检查，并明确区分模拟器与实机。按改动选择有意义的验证：
 
 - 导入：系统选择、多选、文件夹、取消、重复文件、错误提示和原文件保持完整。
-- 格式：编码、EPUB 书脊顺序、DOCX 段落，以及 PDF 文本层与不支持格式的边界。
+- 格式：编码、EPUB 书脊顺序、DOCX 段落，以及 PDF 文本层、纯扫描页 OCR、插图与不支持格式的边界。
 - 排版：连续正文不丢失、不重复、不裁切；标点、段末孤字与跨页段落；字体和字号变化后的正文位置。
 - 平板：横竖屏、显示密度、系统边距、触控与菜单；导入字体及缺字回退。
 - 屏幕：三种材质、刷新序列、快速连续操作、完成后无旧字残留、静止状态、关闭动画和后台传感器。
@@ -99,3 +99,12 @@ Validated with the font-switch instrumentation checks on API 36.
 提交可复现的源代码、配置、原创最小测试样例与公开产品文档。不要提交签名密钥、令牌、个人书籍/字体、SDK、模拟器、构建缓存、APK、原始截图、讨论记录或本地路径与验收资料。
 
 贡献的原创代码、文档和测试样例按 [MIT License](LICENSE) 提供。引入第三方材料时注明来源、用途及许可证，并更新 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+离线识别、重排与持久化回归：
+
+```sh
+adb -s YOUR_TEST_SERIAL shell am instrument -w -e suite library io.github.dpan538.inkreader.preview.test/com.inkreader.nativeink.InkEvidence
+adb -s YOUR_TEST_SERIAL shell am instrument -w -e suite backup io.github.dpan538.inkreader.preview.test/com.inkreader.nativeink.InkEvidence
+```
+
+`backup` 会创建专用测试文件夹并通过英文 DocumentsUI 选择该目录。OCR 模型随包提供，首次构建从固定的 JitPack 坐标下载 Tesseract4Android，并从 Maven Central 下载 ONNX Runtime Android 1.23.2；模型来源、版本和 SHA-256 位于 `assets/ocr/models.json`。

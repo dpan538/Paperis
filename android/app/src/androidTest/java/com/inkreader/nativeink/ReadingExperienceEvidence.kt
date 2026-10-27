@@ -62,7 +62,7 @@ internal class ReadingExperienceEvidence(private val instrumentation: Instrument
             click("＋ 从文件选择")
             waitFor("system picker") { uiAutomation.rootInActiveWindow?.packageName?.toString()?.contains("documentsui")==true }
             verify("Import panel launches the real Android document picker",true)
-            uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+            repeat(3) {if(uiAutomation.rootInActiveWindow?.packageName?.toString()?.contains("documentsui")==true){uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);SystemClock.sleep(500)}}
             waitFor("picker cancelled") { uiAutomation.rootInActiveWindow?.packageName?.toString()==targetContext.packageName };settle()
             ui { activity.inkView.openMenu(MenuPage.ROOT) };settle()
             val root=ui { activity.inkView.menuBounds }

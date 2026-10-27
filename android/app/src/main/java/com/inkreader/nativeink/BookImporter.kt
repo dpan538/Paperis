@@ -7,30 +7,30 @@ import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import java.util.zip.ZipFile
 
-internal data class ParsedBook(val title:String,val text:String,val format:String,val structure:BookStructure=BookStructure.infer(text),val images:Map<String,ByteArray> = emptyMap())
+internal data class ParsedBook(val title:String,val text:String,val format:String,val structure:BookStructure=BookStructure.infer(text),val images:Map<String,File> = emptyMap())
 
 /** Reads local data only. No HTML execution, external XML entities or archive extraction. */
 internal object BookImporter {
-    const val MAX_BYTES = 32 * 1024 * 1024
-    const val MAX_TEXT = 1_000_000
+    const val MAX_BYTES = 64 * 1024 * 1024
+    const val MAX_TEXT = 2_000_000
     val extensions = setOf("txt", "epub", "md", "markdown", "html", "htm", "docx", "pdf")
 
-    fun parse(file:File,name:String,progress:(Int,Int)->Unit={_,_->}):ParsedBook {
-        require(file.length() in 1..MAX_BYTES.toLong()) { "文件为空或超过 32 MB" }
+    fun parse(file:File,name:String,progress:(Int,Int)->Unit={_,_->},context:android.content.Context?=null,workspace:File=File(file.parentFile,file.name+"-assets"),forceOcr:Boolean=false):ParsedBook {
+        require(file.length() in 1..MAX_BYTES.toLong()) { "文件为空或超过 64 MB" }
         val extension = name.substringAfterLast('.', "").lowercase()
-        require(extension in extensions) { "暂不支持 .$extension；请选择 TXT、EPUB、MD、HTML、DOCX 或文本 PDF" }
+        require(extension in extensions) { "暂不支持 .$extension；请选择 TXT、EPUB、MD、HTML、DOCX 或 PDF" }
         var title = name.substringBeforeLast('.').ifBlank { "未命名" }
         if(extension=="txt") {
             val body=normalize(decode(file.readBytes()))
             require(body.any {it.isLetterOrDigit()}) {"未找到可重排正文"}
             title=title.replace(Regex("\\s+")," ").take(100)
             val text=if(body.lineSequence().first()==title)body else "$title\n\n$body"
-            require(text.length<=MAX_TEXT) {"正文超过 100 万字，请拆分后导入"}
+            require(text.length<=MAX_TEXT) {"正文超过 200 万字，请拆分后导入"}
             return ParsedBook(title,text,"TXT",BookStructure.infer(text))
         }
         val assembly=when(extension) {
-            "epub" -> return epub(file,title,progress)
-            "pdf" -> pdf(file,progress)
+            "epub" -> return epub(file,title,progress,workspace)
+            "pdf" -> PdfReflow.read(file,progress,context,workspace,forceOcr)
             "docx" -> docx(file)
             "md","markdown" -> markdownBlocks(decode(file.readBytes()))
             else -> BookAssembly().apply {
@@ -46,12 +46,11 @@ internal object BookImporter {
                 }
             }
         }
-        if(extension=="pdf"&&assembly.titleHint.isNotBlank())title=assembly.titleHint
         title=title.replace(Regex("\\s+")," ").take(100)
         require(assembly.blocks.any {it.text.any {c->c.isLetterOrDigit()}||it.imageKey.isNotEmpty()}) {"未找到可重排正文"}
         val result=assembly.finish(title,extension.uppercase())
         require(result.text.any {it.isLetterOrDigit()} && assembly.blocks.isNotEmpty()) { "未找到可重排正文；扫描图片或受保护文件暂不能重排" }
-        require(result.text.length<=MAX_TEXT) { "正文超过 100 万字，请拆分后导入" }
+        require(result.text.length<=MAX_TEXT) { "正文超过 200 万字，请拆分后导入" }
         return result
     }
 
@@ -90,14 +89,18 @@ internal object BookImporter {
             val entry = zip.getEntry(path) ?: error("文档缺少 $path")
             val bytes = zip.getInputStream(entry).use { it.readNBytes(MAX_BYTES + 1) }
             expanded += bytes.size
-            require(expanded <= MAX_BYTES) { "解压后正文过大" }
+            require(expanded <= 256 * 1024 * 1024) { "解压后正文过大" }
             return decode(bytes)
         }
-        fun bytes(path:String):ByteArray {
+        fun asset(path:String,target:File):File {
             val entry=zip.getEntry(path) ?: error("插图缺失")
-            val data=zip.getInputStream(entry).use {it.readNBytes(8*1024*1024+1)}
-            expanded+=data.size;require(data.size<=8*1024*1024 && expanded<=MAX_BYTES) {"文档资源过大"}
-            return data
+            target.parentFile?.mkdirs()
+            zip.getInputStream(entry).use { input->target.outputStream().use { output->
+                val b=ByteArray(32768);var size=0
+                while(true) {val n=input.read(b);if(n<0)break;size+=n;expanded+=n
+                    require(size<=32*1024*1024&&expanded<=256*1024*1024) {"文档资源过大"};output.write(b,0,n)}
+            }}
+            return target
         }
         fun has(path: String) = zip.getEntry(path) != null
         override fun close() = zip.close()
@@ -112,7 +115,7 @@ internal object BookImporter {
         return parts.joinToString("/")
     }
     private data class NavRef(val label:String,val href:String,val level:Int)
-    private fun epub(file:File,fallback:String,progress:(Int,Int)->Unit):ParsedBook=Archive(file).use { a ->
+    private fun epub(file:File,fallback:String,progress:(Int,Int)->Unit,workspace:File):ParsedBook=Archive(file).use { a ->
         val encrypted=mutableSetOf<String>()
         if(a.has("META-INF/encryption.xml"))xml(a.read("META-INF/encryption.xml")) {p,e->if(e==XmlPullParser.START_TAG&&p.name=="CipherReference")encrypted+=android.net.Uri.decode(p.getAttributeValue(null,"URI").orEmpty())}
         var opf=""
@@ -179,7 +182,7 @@ internal object BookImporter {
                     val imagePath=resolve(path,src)
                     if(!imagePath.substringAfterLast('.').lowercase().let {it in setOf("jpg","jpeg","png","webp","gif")})return@runCatching null
                     val key=java.security.MessageDigest.getInstance("SHA-256").digest(imagePath.toByteArray()).joinToString("") {"%02x".format(it)}
-                    if(key !in assembly.images)assembly.images[key]=a.bytes(imagePath)
+                    if(key !in assembly.images)assembly.images[key]=a.asset(imagePath,File(workspace,key))
                     key
                 }.getOrNull()
             }
@@ -203,7 +206,7 @@ internal object BookImporter {
                     } else assembly.add(block)
                 }
             }
-            require(assembly.blocks.sumOf {it.text.length}<=MAX_TEXT) {"正文超过 100 万字"}
+            require(assembly.blocks.sumOf {it.text.length}<=MAX_TEXT) {"正文超过 200 万字"}
         }
         // Remove converted running heads only when their non-page-number title exists as a real block.
         val blockKeys=assembly.blocks.map {ChapterScanner.key(it.text)}.toMutableSet()
@@ -253,7 +256,9 @@ internal object BookImporter {
         if(a.isEmpty())return b
         if(b.isEmpty())return a
         if(a.endsWith('-')&&a.length>1&&a[a.lastIndex-1].isLetter()&&a[a.lastIndex-1].code<128&&b[0].isLowerCase()&&b[0].code<128)return a.dropLast(1)+b
-        val space=a.last().code<128&&b.first().code<128&&a.last() !in "(/"&&b.first() !in ".,;:!?)]"
+        val latinA=Character.UnicodeScript.of(a.last().code)==Character.UnicodeScript.LATIN||a.last().isDigit()||a.last() in ",;:!?)]}”’\"\'"
+        val latinB=Character.UnicodeScript.of(b.first().code)==Character.UnicodeScript.LATIN||b.first().isDigit()||b.first() in "(“‘\"\'"
+        val space=latinA&&latinB&&a.last() !in "(/"&&b.first() !in ".,;:!?)]"
         return a+(if(space)" " else "")+b
     }
     private fun markdownBlocks(value:String):BookAssembly {
@@ -263,7 +268,7 @@ internal object BookImporter {
             val heading=Regex("^(#{1,6})\\s+(.+?)\\s*#*$").matchEntire(line)
             when {
                 line.trimStart().startsWith("```")->{flush();code=!code}
-                !code&&heading!=null->{flush();out.add(SourceBlock(markdown(heading.groupValues[2]),"heading",heading.groupValues[1].length.coerceAtMost(3)))}
+                !code&&heading!=null->{flush();out.add(SourceBlock(markdown(heading.groupValues[2]),"heading",heading.groupValues[1].length.coerceAtMost(3),explicitHeading=true))}
                 line.isBlank()->flush()
                 else->{if(paragraph.isNotEmpty())paragraph.append('\n');paragraph.append(line)}
             }
@@ -285,7 +290,7 @@ internal object BookImporter {
             if(e==XmlPullParser.TEXT&&inText)text.append(p.text)
             if(e==XmlPullParser.END_TAG)when(p.name) {
                 "t"->inText=false
-                "p"->{val content=normalize(text.toString());if(content.isNotBlank())out.add(SourceBlock(content,if(heading>0)"heading" else "body",heading))}
+                "p"->{val content=normalize(text.toString());if(content.isNotBlank())out.add(SourceBlock(content,if(heading>0)"heading" else "body",heading,explicitHeading=heading>0))}
             }
         }
         out

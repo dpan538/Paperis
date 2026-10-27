@@ -1,0 +1,17 @@
+{
+  "repository": "tesseract-ocr/tessdata_fast",
+  "revision": "87416418657359cb625c412a48b6e1d6d41c29bd",
+  "sha256": {
+    "eng.traineddata": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+    "chi_sim.traineddata": "4fef2d1306c8e87616d4d3e4c6c67faf5d44be3342290cf8f2f0f6e3aa7e735b",
+    "chi_tra.traineddata": "1aa60488574cafa69486d919284f079ca9b68fcc7f6ad8dc1ff1b318dfd97028"
+  },
+  "chineseRepository": "tesseract-ocr/tessdata_best",
+  "chineseRevision": "e12c65a915945e4c28e237a9b52bc4a8f39a0cec",
+  "paddle": {
+    "repository": "PaddlePaddle/PP-OCRv5_server_rec_onnx",
+    "revision": "b70df217f4fd99d14f970bad092cebe7d74cc4d1",
+    "sha256": "d9dc333c9c7b042c6dffb8e33d72b6f65c9c1d463d0a3c2f78174fea55e94752",
+    "dictionarySha256": "3bcbe3c9140a6345520f0510af66fe4eb2c6d9273dcce48a6942b20a074d5a67"
+  }
+}

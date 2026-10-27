@@ -9,47 +9,38 @@ import kotlin.math.abs
 
 /** Restore prose from PDF line geometry instead of treating every physical line as a paragraph. */
 internal object PdfReflow {
-    data class Line(val text:String,val box:RectF,val page:Int)
-    fun read(file:File,progress:(Int,Int)->Unit={_,_->}):BookAssembly {
-        if(Build.VERSION.SDK_INT<35)throw IllegalArgumentException("PDF 文本重排需要 Android 15 及以上；可先转为 EPUB/TXT")
-        val pages=mutableListOf<List<Line>>();val sizes=mutableListOf<Pair<Int,Int>>()
+    data class Line(val text:String,val box:RectF,val page:Int,val pageStart:Boolean=false,val ocr:Boolean=false,val confidence:Float=100f,val image:String="")
+    fun read(file:File,progress:(Int,Int)->Unit={_,_->},context:android.content.Context?=null,workspace:File=File(file.parentFile,file.name+"-pages"),forceOcr:Boolean=false):BookAssembly {
+        val pages=mutableListOf<List<Line>>();val sizes=mutableListOf<Pair<Int,Int>>();val assets=mutableMapOf<String,File>()
         var total=0
-        PdfRenderer(ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY)).use { document->
-            require(document.pageCount<=1500) {"PDF 页数过多，请拆分后导入"}
-            repeat(document.pageCount) {i->progress(i+1,document.pageCount);document.openPage(i).use {page->
-                sizes+=page.width to page.height
-                val lines=mutableListOf<Line>()
-                page.textContents.forEach {content->
-                    val pieces=content.text.replace("\r\n","\n").replace('\r','\n').split('\n').filter {it.isNotBlank()}
-                    var cursor=0
-                    pieces.forEachIndexed {j,s->
-                        val at=content.text.indexOf(s,cursor).coerceAtLeast(cursor);cursor=at+s.length
-                        // Several system PDF implementations expose raw page text with an empty bounds list.
-                        // Native text matching supplies the real line rectangle in that case.
-                        val box=content.bounds.getOrNull(j)?:run {
-                            val match=page.searchText(s.trim()).minByOrNull {kotlin.math.abs(it.textStartIndex-at)}
-                            match?.bounds?.takeIf {it.isNotEmpty()}?.let {rects->RectF(rects.first()).apply {rects.drop(1).forEach {union(it)}}}
-                        }?:RectF(0f,j*12f,page.width.toFloat(),j*12f+10f)
-                        val t=s.replace(Regex("[\\t 　]+")," ").trim().replace(Regex("(?<=[\\p{IsHan}]) +(?=[\\p{IsHan}])"),"")
-                        if(t.isNotBlank())lines+=Line(t,RectF(box),i)
-                    }
-                }
-                total+=lines.sumOf {it.text.length};require(total<=BookImporter.MAX_TEXT) {"PDF 正文过长，请拆分后导入"}
-                pages+=lines.sortedWith(compareBy<Line>{it.box.top}.thenBy {it.box.left})
-            }}
+        PdfPages(context,workspace,forceOcr).use {processor->
+            PdfRenderer(ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY)).use {document->
+                require(document.pageCount<=1500) {"PDF 页数过多，请拆分后导入"}
+                repeat(document.pageCount) {i->progress(i+1,document.pageCount);document.openPage(i).use {page->
+                    sizes+=page.width to page.height
+                    val lines=processor.read(page,i);total+=lines.sumOf {it.text.length}
+                    require(total<=BookImporter.MAX_TEXT) {"PDF 正文过长，请拆分后导入"};pages+=lines
+                }}
+            };assets.putAll(processor.images)
         }
-        require(total>0) {"此 PDF 没有文本层，扫描图片暂不能重排"}
+        require(total>0) {"未找到 PDF 内容"}
         val marginal=pages.flatten().filter {l->val h=sizes[l.page].second;l.box.bottom<h*.09f||l.box.top>h*.89f}
             .groupingBy {ChapterScanner.key(it.text)}.eachCount().filterValues {it>=3}.keys
         val tocLine=Regex("^(.{2,100}?)[·.．…]{4,}\\s*[（(]?\\s*[0-9IVXLCivxlc]{1,7}\\s*[）)]?\\s*$")
+        val tocPages=pages.indices.filter {i->
+            val lines=pages[i];val explicit=lines.any {ChapterScanner.key(it.text) in setOf("目录","目錄","contents","tableofcontents")}
+            explicit||i<minOf(24,maxOf(4,pages.size/6))&&lines.count {tocLine.matches(it.text)}>=3
+        }.toMutableSet()
+        // A contents continuation may contain only one or two final entries and no repeated label.
+        for(i in pages.indices)if(i>0&&i-1 in tocPages&&pages[i].any {tocLine.matches(it.text)})tocPages+=i
         val printed=mutableListOf<String>()
-        for(page in pages)for((index,line) in page.withIndex()) {
+        for(pageIndex in tocPages)for((index,line) in pages[pageIndex].withIndex()) {
             val label=tocLine.find(line.text)?.groupValues?.get(1)?.trim()?:continue
-            val previous=page.getOrNull(index-1)?.text.orEmpty()
+            val previous=pages[pageIndex].getOrNull(index-1)?.text.orEmpty()
             printed+=if(!Regex("^[0-9]+[.．]").containsMatchIn(label)&&Regex("^[0-9]+[.．]").containsMatchIn(previous)&&!Regex("[·.．…]{4,}").containsMatchIn(previous))BookImporter.joinProse(previous,label) else label
         }
-        val out=BookAssembly()
-        pages.take(if(pages.size>3)3 else 0).flatten().filter {it.text.length in 3..64&&it.box.height()>18f}.maxByOrNull {it.box.height()}?.let {out.titleHint=it.text}
+        val out=BookAssembly().apply {images.putAll(assets);ocrPages=pages.count {page->page.any {it.ocr}};uncertainLines=pages.sumOf {page->page.count {it.ocr&&it.confidence<85f}}}
+        pages.take(if(pages.size>3)3 else 0).flatten().filter {it.image.isEmpty()&&!TextSemantics.metadata(it.text)&&(!it.ocr||it.confidence>=85f)&&it.text.length in 3..64&&it.box.height()>18f}.maxByOrNull {it.box.height()}?.let {out.titleHint=it.text}
         var previous:Line?=null
         for((i,page) in pages.withIndex()) {
             val height=sizes[i].second
@@ -58,7 +49,7 @@ internal object PdfReflow {
                 edge&&(l.text.matches(Regex("[0-9IVXLCivxlc]{1,7}"))||ChapterScanner.key(l.text) in marginal)
             }
             // Printed dot-leader contents are replaced by actual body destinations.
-            val tocRows=filtered.indices.filter {tocLine.matches(filtered[it].text)}.toMutableSet()
+            val tocRows=filtered.indices.filter {i in tocPages&&tocLine.matches(filtered[it].text)}.toMutableSet()
             if(tocRows.isNotEmpty()) {
                 for(row in tocRows.toList()) {
                     val label=tocLine.find(filtered[row].text)?.groupValues?.get(1).orEmpty()
@@ -80,21 +71,26 @@ internal object PdfReflow {
                 lines+=line;cursor++
             }
             if(lines.isEmpty())continue
-            val bodyHeights=lines.map {it.box.height()}.filter {it>0}.sorted()
+            val bodyHeights=lines.filter {it.image.isEmpty()}.map {it.box.height()}.filter {it>0}.sorted()
             val em=bodyHeights.getOrNull(bodyHeights.size/2)?.coerceAtLeast(5f)?:10f
             val left=lines.minOf {it.box.left};val right=lines.maxOf {it.box.right}
             val leading=lines.zipWithNext().map {(a,b)->b.box.top-a.box.top}.filter {it>em*.7f&&it<em*3}.sorted().let {it.getOrNull(it.size/2)?:em*1.6f}
-            for((index,l) in lines.withIndex()) {
+            for((lineIndex,l) in lines.withIndex()) {
+                if(l.image.isNotEmpty()) {out.add(SourceBlock("【插图】","image",imageKey=l.image,page=i));previous=null;continue}
                 val recognized=if(printed.any {ChapterScanner.key(it)==ChapterScanner.key(l.text)})if(l.text.startsWith("第"))1 else 2 else ChapterScanner.level(l.text)
-                val displayHeading=l.text.length in 2..64&&l.box.height()>em*1.23f
+                val metadata=TextSemantics.metadata(l.text)
+                val before=lines.getOrNull(lineIndex-1);val after=lines.getOrNull(lineIndex+1)
+                val isolated=(before==null||l.box.top-before.box.bottom>em*.8f)&&(after==null||after.box.top-l.box.bottom>em*.8f)
+                val centered=kotlin.math.abs(l.box.centerX()-sizes[i].first/2f)<sizes[i].first*.08f
+                val displayHeading=!metadata&&l.text.length in 2..64&&(l.box.height()>em*1.23f||isolated&&(centered&&TextSemantics.shortChinese(l.text)||TextSemantics.englishTitle(l.text)))
                 val heading=if(recognized>0)recognized else if(displayHeading)1 else 0
                 val prev=previous
                 val indented=l.box.left-left>em*1.15f
                 val gap=prev!=null&&prev.page==i&&l.box.top-prev.box.top>leading*1.48f
                 val shortPrevious=prev!=null&&prev.box.right<right-em*2.5f&&Regex("[。！？.!?：:]?[”’」』）)]?$").find(prev.text)?.value?.any {it in "。！？.!?：:"}==true
                 val crossPage=prev!=null&&prev.page!=i
-                val newParagraph=out.blocks.isEmpty()||heading>0||out.blocks.last().kind!="body"||indented||gap||shortPrevious||(crossPage&&prev!!.text.last() in "。！？.!?" )
-                if(newParagraph)out.add(SourceBlock(l.text,if(heading>0)"heading" else "body",heading))
+                val newParagraph=out.blocks.isEmpty()||heading>0||metadata||out.blocks.last().kind!="body"||(l.ocr&&l.pageStart)||indented||gap||shortPrevious||(crossPage&&prev!!.text.last() in "。！？.!?" )
+                if(newParagraph)out.add(SourceBlock(l.text,if(heading>0)"heading" else if(metadata)"metadata" else "body",heading,page=i))
                 else {out.blocks.last().text=BookImporter.joinProse(out.blocks.last().text,l.text);out.repairedBreaks++}
                 previous=l
             }

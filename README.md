@@ -8,9 +8,9 @@ Paperis 纸墨 是一款专为 Pad 与平板设备打造的极简水墨屏风质
 
 ## 下载
 
-[![下载 Android APK](https://img.shields.io/badge/下载_Android_APK-0.1.0--preview.11-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.11/Paperis-0.1.0-preview.11.apk)
+[![下载 Android APK](https://img.shields.io/badge/下载_Android_APK-0.1.0--preview.12-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.12/Paperis-0.1.0-preview.12.apk)
 
-**[直接下载 Paperis 纸墨 APK](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.11/Paperis-0.1.0-preview.11.apk)** · [查看版本与校验值](https://github.com/dpan538/Paperis/releases)
+**[直接下载 Paperis 纸墨 APK](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.12/Paperis-0.1.0-preview.12.apk)** · [查看版本与校验值](https://github.com/dpan538/Paperis/releases)
 
 Android 13+，面向平板的预览版本，使用项目的预览开发签名。下载后允许浏览器安装应用；已有同签名预览可覆盖升级。小米 Pad 9 Pro Max 的实机验证仍待完成。
 
@@ -42,7 +42,7 @@ Paperis 使用 Kotlin、原生 Canvas 与 AGSL 实现显示材质。软件模拟
 
 ## 文件与导入
 
-书由你带来。Paperis 提供简单的本地文件列表，支持系统文件选择器多选、按文件夹导入与目录浏览，也可从文件管理器打开或分享文档到应用。导入时显示当前文件和整理进度，完成后显示目录章节数；相同文件会跳过，旧版扁平导入的文件再次选择时会升级结构。无法解析的文件会给出原因。
+书由你带来。Paperis 提供简单的本地文件列表，支持系统文件选择器多选、按文件夹导入与目录浏览，也可从文件管理器打开或分享文档到应用。导入时显示当前文件和整理进度，相同文件会跳过；整理任务与已完成 PDF 页面会保存进度，可从通知暂停、在设置中继续。无法解析的文件会给出原因。
 
 | 格式 | 当前支持 |
 | --- | --- |
@@ -50,17 +50,21 @@ Paperis 使用 Kotlin、原生 Canvas 与 AGSL 实现显示材质。软件模拟
 | EPUB | 按书脊顺序保留段落、标题、NCX / EPUB 3 目录和本地位图插图，重新排版 |
 | Markdown / HTML | 提取可读段落、标题层级与链接文字 |
 | DOCX | 提取段落和标题样式，生成目录 |
-| PDF | Android 15 及以上提取文本层，结合行坐标恢复段落、识别标题与页眉页码，并建立可跳转目录 |
+| PDF | Android 15+ 优先提取文本层；扫描页及 Android 13/14 使用随包离线 OCR，支持简体、繁体、英文，恢复段落与目录，并提取灰度插图 |
 
-EPUB 插图按阅读栏宽缩放，并以灰度原生绘制；保留内容和阅读顺序，不复制原书的固定图片位置。PDF 当前提取文字，不保留插图。复杂表格、公式、竖排、完整 CSS、固定版式和网页交互暂不保留。扫描 PDF、加密正文、旧版 DOC、MOBI、AZW 暂不支持；PDF 暂不提供 OCR。
+EPUB 与 PDF 插图按阅读栏宽缩放并以灰度绘制。PDF 使用页面渲染与文字区域分析提取位图和矢量插图；“阅读排版 → 重新排版本书 → 查看 PDF 原页”保留完整原页供核对。复杂表格、公式、竖排、完整 CSS 和固定版式不会被精确重建。加密正文、旧版 DOC、MOBI、AZW 暂不支持。
 
-自动目录来自原书标题和可核对的正文线索，不能保证覆盖没有任何章节标识的文档。这里的扫描是离线分析文本结构；纯扫描图片仍需 OCR，当前尚未提供。
+自动目录来自原书标题和正文线索，明确区分原始目录与自动识别目录。扫描 PDF 的 OCR 在本机运行，不需要下载模型或上传页面；采用精度优先模型自动识别简繁中文和英文，并保留原文字形与词间空格。模糊扫描、小字、复杂分栏仍可能错字或错序，请结合原页核对。
 
-单文件上限 32 MB，解析后正文上限 100 万字，单次文件夹导入最多 100 个文件；自定义字体上限 16 MB。应用保存完整的本地导入副本、重排正文和结构数据，原文件保留在用户选择的位置，不修改原书。旧版已导入书籍需要重新选择原文件，才能获得新版段落与目录。
+**旧书无需重复导入**：进入“阅读排版 → 重新排版本书”，用已保存原文件重建段落、目录和插图，并保留阅读位置与书签。较早版本仅保存文字的书可以直接整理现有文字，无法凭空恢复未保存的原页与图片。
+
+单文件上限 **64 MiB**（大于 50 MB），解析后正文上限 200 万字符，单次导入最多 100 个文件；自定义字体上限 16 MiB。原文件与图片流式落盘，逐页处理 PDF，完整副本、正文、插图和目录存入应用文件目录，不依赖缓存，也不修改用户原书。
+
+**长期保存与独立备份**：在“设置 → 保存与备份”选择自己的本地文件夹。导入、重新排版后自动写入并读回校验 `.paperis` 备份，也可手动备份全部书籍、从所选文件夹恢复原文件、正文、目录、插图、阅读位置和书签。每次保存新快照，完成校验后才标记为可恢复备份。选择本机文件夹时，这些独立文件可在卸载后保留；重装后重新授权该文件夹即可恢复。应用内副本会随卸载或清除应用数据移除；文件夹备份不会自动删除。
 
 ## 平板适配与项目状态
 
-- **系统**：Android 13 及以上。
+- **系统**：Android 13 及以上，当前预览 APK 为 ARM64。
 - **主要适配目标**：小米 Pad 9 Pro Max。按实际窗口、显示密度和系统安全边距排版，正文跟随系统 SP 字体缩放；宽横屏双栏、窄窗口与竖屏单栏，短窗口菜单可以滚动。3408 × 2272、3:2 为项目参考配置，并非实机测量值。
 - **当前阶段**：可构建的原生源码预览。当前验证使用 Android 模拟器；已提供预览 APK，尚未完成小米实机验证。
 
@@ -68,7 +72,7 @@ EPUB 插图按阅读栏宽缩放，并以灰度原生绘制；保留内容和阅
 
 ## 隐私
 
-无需账号。书籍通过系统文件选择器授权导入，原文件的应用内副本、重排正文与插图、目录数据、导入字体、阅读位置和偏好保存在应用本地。清除应用数据或卸载会移除这些副本，不会删除原文件。
+无需账号。书籍通过系统文件选择器授权导入，原文件的应用内副本、重排正文与插图、目录数据、导入字体、阅读位置和偏好保存在应用本地。清除应用数据或卸载会移除应用内副本，不会删除原文件或用户所选文件夹中的独立备份。OCR 也完全在本机处理。
 
 应用不申请全盘存储权限，不包含广告、统计追踪或遥测。点击“拉取更新”会连接 GitHub 公共版本接口；点击“提交反馈”会将填写的内容、应用版本和重试标识发送至 Paperis 反馈服务，并在公开的 GitHub Issue 中核验回执。密钥仅保留在服务端；书库、字体和设备信息不会随反馈自动上传。下载和查看回执通过浏览器打开，不会自动安装或提交反馈。你导入的书籍和字体仍受各自的版权与许可约束。
 
@@ -76,7 +80,7 @@ EPUB 插图按阅读栏宽缩放，并以灰度原生绘制；保留内容和阅
 
 **Paperis 纸墨 — As gentle as paper, as pure as reading.**
 
-A minimal native Android reader for tablets, with a warm monochrome e-paper-inspired surface, staged ink refresh with clean settled pages, adaptive window/inset layout, local document import, semantic paragraphs and headings, source or generated contents, grayscale EPUB illustrations, text reflow, custom fonts, Porcelain / Gentle / Paper surfaces, independent night lighting and dark mode, and draft-preserving in-app feedback. Built with Kotlin, Canvas and AGSL, for Android 13 and later.
+A minimal native Android reader for tablets, with a warm monochrome e-paper-inspired surface, staged ink refresh with clean settled pages, adaptive window/inset layout, local document import, semantic paragraphs and headings, source or generated contents, grayscale EPUB/PDF illustrations, bundled offline Chinese/English OCR, manual reprocessing of saved books, 64 MiB imports, verified user-folder backup/restore, text reflow, custom fonts, Porcelain / Gentle / Paper surfaces, independent night lighting and dark mode, and draft-preserving in-app feedback. Built with Kotlin, Canvas and AGSL, for Android 13 and later.
 
 The primary layout target is the Xiaomi Pad 9 Pro Max. This is a source preview validated on an emulator; physical-device validation is still pending. See [CONTRIBUTING.md](CONTRIBUTING.md) for building and tablet adaptation.
 

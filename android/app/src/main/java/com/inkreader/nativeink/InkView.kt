@@ -19,7 +19,7 @@ import kotlin.math.min
 
 class InkView @JvmOverloads constructor(context: Context, private val importFiles: (Boolean) -> Unit = {}, private val importFont: () -> Unit = {},
     private val checkUpdate: () -> Unit = {}, private val external: (String) -> Unit = {},
-    private val feedback: () -> Unit = {}) : View(context) {
+    private val feedback: () -> Unit = {}, private val reprocess:(Boolean)->Unit={}, private val storage:(Int)->Unit={}, private val originalPage:()->Unit={}) : View(context) {
     internal data class Frame(val page: Int, val fontStep: Int, val tools: Boolean, val optical: Boolean = true,
         val spacingStep: Int = 1, val columnMode: Int = 0, val menu: MenuPage = MenuPage.ROOT,
         val draftPage: Int = 0, val bookmarks: List<Int> = emptyList(), val bookmarkListPage: Int = 0,
@@ -212,7 +212,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         val currentMarked = frame.bookmarks.any { it in pageRange.first().start until pageRange.last().end }
         val model=when (frame.menu) {
             MenuPage.ROOT -> MenuModel(t("阅读菜单", "Reading menu"), false, listOf(
-                item(if(frame.library) t("返回阅读", "Resume reading") else t("文件", "Files"), MenuAction.FILES),
+                if(LibraryWork.active)item(t("暂停整理并保留进度", "Pause and keep progress"),MenuAction.PAUSE) else item(if(frame.library) t("返回阅读", "Resume reading") else t("文件", "Files"), MenuAction.FILES),
                 item(t("阅读排版", "Text & layout"), MenuAction.LAYOUT),
                 item(t("阅读预设", "Reading surfaces"), MenuAction.PRESETS), item(t("目录与进度", "Contents & progress"), MenuAction.NAVIGATION),
                 item(t("书签 · ${frame.bookmarks.size}", "Bookmarks · ${frame.bookmarks.size}"), MenuAction.BOOKMARKS),
@@ -225,6 +225,8 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 add(item(if(frame.updateState==1) t("正在检查更新…", "Checking updates…") else t("拉取更新", "Check for updates"),MenuAction.CHECK_UPDATE))
                 if(frame.updateState==3) add(item(t("下载 ${frame.updateVersion}", "Download ${frame.updateVersion}"),MenuAction.DOWNLOAD_UPDATE))
                 add(item(t("提交反馈", "Send feedback"),MenuAction.FEEDBACK))
+                add(item(t("保存与备份", "Storage & backup"),MenuAction.STORAGE))
+                if(LibraryWork.pending(context))add(item(t("继续上次整理", "Resume unfinished work"),MenuAction.RESUME))
                 add(MenuRow("Paperis ${BuildConfig.VERSION_NAME}"))
                 add(MenuRow(when(frame.updateState) {
                     1 -> t("正在连接 GitHub…", "Connecting to GitHub…")
@@ -239,10 +241,36 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuPage.IMPORT -> MenuModel(t("导入书籍", "Import books"),true,listOf(
                 item(t("＋ 从文件选择", "+ Choose files"),MenuAction.IMPORT_FILES),
                 item(t("＋ 导入整个文件夹", "+ Choose a folder"),MenuAction.IMPORT_FOLDER),
-                MenuRow("TXT · EPUB · MD · HTML"), MenuRow("DOCX · PDF (Android 15+)"),
+                MenuRow("TXT · EPUB · MD · HTML"), MenuRow("DOCX · PDF · OCR"),
                 MenuRow(t("可多选，重复文件自动跳过", "Select several; duplicates are skipped")),
                 MenuRow(t("原文件保留在原来的位置", "Your original files stay untouched")),
-                MenuRow(t("扫描 PDF 暂不支持重排", "Scanned PDFs aren't supported yet"))))
+                MenuRow(t("单文件最大 64 MiB · 离线识别", "Up to 64 MiB · offline OCR")),
+                item(t("保存与备份", "Storage & backup"),MenuAction.STORAGE)))
+            MenuPage.STORAGE -> {
+                val backup=LibraryBackup(context,files)
+                MenuModel(t("保存与备份", "Storage & backup"),true,buildList {
+                    add(item(t("选择本地备份文件夹", "Choose backup folder"),MenuAction.BACKUP_FOLDER))
+                    add(MenuRow(backup.label.ifEmpty {t("尚未选择备份文件夹", "No backup folder selected")}))
+                    if(backup.tree!=null){add(item(t("立即备份全部书籍", "Back up all books"),MenuAction.BACKUP));add(item(t("从此文件夹恢复", "Restore from this folder"),MenuAction.RESTORE))}
+                    if(LibraryWork.pending(context))add(item(t("继续上次整理", "Resume unfinished work"),MenuAction.RESUME))
+                    add(MenuRow(t("原文件与排版数据保存在本机", "Originals and layout saved on device")))
+                    add(MenuRow(t("导入和重排后自动同步备份", "Backup follows import and reprocessing")))
+                    add(MenuRow(t("卸载前请完成独立文件夹备份", "Folder backups survive uninstall")))
+                    if(backup.preferences.contains("error"))add(MenuRow(t("上次备份未完成，请重试", "Last backup incomplete; retry")))
+                })
+            }
+            MenuPage.REFLOW -> MenuModel(t("重新排版本书", "Reprocess this book"),true,buildList {
+                if(entry.id!="sample") {
+                    add(item(t("重新整理段落与目录", "Rebuild paragraphs & contents"),MenuAction.REPROCESS))
+                    if(files.hasOriginal(entry)&&entry.format=="PDF") {
+                        add(item(t("重新 OCR（简 / 繁 / 英）", "Run OCR again (Chinese / English)"),MenuAction.OCR))
+                        add(item(t("查看 PDF 原页", "View original PDF pages"),MenuAction.ORIGINAL))
+                    }
+                    add(MenuRow(if(files.hasOriginal(entry))t("使用本机原文件，无需重复导入", "Uses the saved original; no reimport") else t("此旧书仅有文字，将恢复段落与目录", "Legacy text: rebuild paragraphs & contents")))
+                    add(MenuRow(t("保留阅读位置与书签", "Keeps reading position and bookmarks")))
+                    if(structure.ocrPages>0)add(MenuRow(t("离线识别 ${structure.ocrPages} 页 · ${structure.uncertainLines} 行建议核对", "OCR: ${structure.ocrPages} pages; ${structure.uncertainLines} lines to check")))
+                } else add(MenuRow(t("试读书无需重新整理", "No reprocessing needed for the sample")))
+            })
             MenuPage.LAYOUT -> MenuModel(t("阅读排版", "Text & layout"), true, buildList {
                 add(MenuRow(t("字号", "Text size"), controls = listOf(control("−", if (frame.fontStep > 0) MenuAction.FONT_DOWN else null),
                     control(fonts[frame.fontStep].toInt().toString(), null), control("+", if (frame.fontStep < fonts.lastIndex) MenuAction.FONT_UP else null))))
@@ -250,6 +278,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 add(MenuRow(t("版式", "Columns"), controls = listOf(t("自动","Auto"), t("单栏","One"), t("双栏","Two")).mapIndexed { i, title -> control(title, MenuAction.COLUMNS, i, i == frame.columnMode) }))
                 add(MenuRow(t("字体", "Font"), controls = listOf(control(t("宋体","Serif"),MenuAction.FONT_FACE,0,frame.face==0), control(t("黑体","Sans"),MenuAction.FONT_FACE,1,frame.face==1),
                     control(t("自定义","Custom"),if(customFace != null) MenuAction.FONT_FACE else null,2,frame.face==2))))
+                add(item(t("重新排版本书", "Reprocess this book"),MenuAction.REFLOW))
                 add(item(t("导入字体（TTF / OTF / TTC）","Import font (TTF / OTF / TTC)"),MenuAction.FONT_IMPORT))
                 if (vw < vh) add(MenuRow(t("竖屏保持单栏","Portrait uses one column")))
                 else if(bookLayout.columns==1 && frame.columnMode!=1) add(MenuRow(t("当前窗口适合单栏","One column fits this window")))
@@ -269,7 +298,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 add(MenuRow(t("跳转页码","Page"),controls=listOf(control("−",if(frame.draftPage>0)MenuAction.DRAFT_DOWN else null),control("${frame.draftPage+1}/${bookLayout.pages.size}",null),control("+",if(frame.draftPage<bookLayout.pages.lastIndex)MenuAction.DRAFT_UP else null))))
                 add(MenuRow("",controls=listOf(0,25,50,75,100).map {control("$it%",MenuAction.PERCENT,it)}))
                 add(item(t("前往第 ${frame.draftPage+1} 页","Go to page ${frame.draftPage+1}"),MenuAction.GO))
-                add(MenuRow(if(structure.chapters.isEmpty())t("未识别到可靠章节标题","No reliable headings detected") else if(structure.directorySource=="epub")t("原书目录 · ${structure.chapters.size} 项","Book contents · ${structure.chapters.size}") else t("自动识别目录 · ${structure.chapters.size} 项","Detected contents · ${structure.chapters.size}")))
+                add(MenuRow(if(structure.chapters.isEmpty())t("未识别到可靠章节标题","No reliable headings detected") else if(structure.directorySource=="mixed")t("原书目录 + 补全章节 · ${structure.chapters.size} 项","Book + detected contents · ${structure.chapters.size}") else if(structure.directorySource=="epub")t("原书目录 · ${structure.chapters.size} 项","Book contents · ${structure.chapters.size}") else t("自动识别目录 · ${structure.chapters.size} 项","Detected contents · ${structure.chapters.size}")))
                 val offset=bookLayout.offsetForPage(frame.page)
                 val current=structure.chapters.lastOrNull {it.offset<=offset}
                 structure.chapters.forEach {chapter->
@@ -304,6 +333,16 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     internal fun menuCommand(command: MenuCommand) {
         when (command.action) {
             MenuAction.FILES -> if(logical.library) request(logical.copy(library=false,tools=false)) else showFiles()
+            MenuAction.PAUSE -> LibraryWork.cancel(context)
+            MenuAction.REFLOW -> openMenu(MenuPage.REFLOW)
+            MenuAction.REPROCESS -> reprocess(false)
+            MenuAction.OCR -> reprocess(true)
+            MenuAction.ORIGINAL -> originalPage()
+            MenuAction.STORAGE -> openMenu(MenuPage.STORAGE)
+            MenuAction.BACKUP_FOLDER -> storage(0)
+            MenuAction.BACKUP -> storage(1)
+            MenuAction.RESTORE -> storage(2)
+            MenuAction.RESUME -> storage(3)
             MenuAction.IMPORT -> openMenu(MenuPage.IMPORT)
             MenuAction.IMPORT_FILES -> importFiles(false)
             MenuAction.IMPORT_FOLDER -> importFiles(true)
@@ -480,14 +519,14 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     internal fun showFiles(notice: String = "", busy: Boolean = false) {
         if(!logical.library) savePreferences()
         if(!busy) {
-            shelfFiles=files.list()
+            files.reload();shelfFiles=files.list()
             val updated=files.get(entry.id)
             if(updated!=null&&updated!=entry) {
                 entry=updated;book=files.text(updated);structure=files.structure(updated,book);savedOffset=preferences.getInt("offset",0);layouts.clear()
                 logical=logical.copy(page=layout(logical).pageForOffset(savedOffset))
             }
         }
-        request(logical.copy(library=true,tools=false,notice=notice,busy=busy))
+        request(logical.copy(library=true,tools=busy&&logical.tools,notice=notice,busy=busy))
     }
     private fun shelfPage(direction: Int) {
         val last=((shelf.items(shelfFiles,logical.shelfFolder).size-1)/shelf.pageSize(vh)).coerceAtLeast(0)
@@ -536,6 +575,8 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     }
 
     override fun performClick(): Boolean { super.performClick(); return true }
+
+    internal fun saveReadingState() { if(layouts.isNotEmpty())savePreferences() }
 
     fun pause() {
         active = false; removeCallbacks(longPress)

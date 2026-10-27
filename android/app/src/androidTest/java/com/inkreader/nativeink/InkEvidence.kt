@@ -73,6 +73,9 @@ class InkEvidence : Instrumentation() {
     private var extraSuite=""
     override fun onCreate(arguments: Bundle?) { extraSuite=arguments?.getString("suite").orEmpty(); pickerOnly=arguments?.getString("suite")=="picker"; importsSuite=arguments?.getString("suite")=="imports" || pickerOnly; super.onCreate(arguments); start() }
     override fun onStart() {
+        if(extraSuite=="source") { SourcePdfEvidence(this).run(); return }
+        if(extraSuite=="backup") { BackupExperienceEvidence(this).run(); return }
+        if(extraSuite=="library") { LibraryEvidence(this).run(); return }
         if(extraSuite=="structure") { StructureEvidence(this).run(); return }
         if(extraSuite=="pdfprobe") { DocumentEvidence(this).run(true); return }
         if(extraSuite=="documents") { DocumentEvidence(this).run(); return }

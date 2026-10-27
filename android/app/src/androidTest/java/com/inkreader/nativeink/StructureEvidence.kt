@@ -68,6 +68,22 @@ internal class StructureEvidence(private val host:Instrumentation) {
             verify("DOCX heading styles survive extraction as navigable chapter levels",word.structure.chapters.map {it.title}==listOf("文档主章","文档小节")&&word.structure.chapters.map {it.level}==listOf(1,2))
             val txt=File(dir,"outline.txt").apply {writeText("outline\n正文第一行。\n正文第二行。")}
             verify("A TXT title on the first physical line is not duplicated",BookImporter.parse(txt,"outline.txt").text==txt.readText())
+            val frontBack="Volume\n\nTranslator's Preface\n\nAuthor: Ada Reader\nISBN: 978-0-000000-00-1\n\nA quiet morning begins with reading, and the next sentence stays in the same paragraph.\n\nThe Shape of Silence\n\nWords continue naturally and preserve every space between English words in this paragraph.\n\nAcknowledgments\n\nThanks to the readers.\n\nBibliography\n\nReference details.\n\nIndex\n\nReading, 12."
+            val plain=BookStructure.infer(frontBack)
+            verify("Plain text generates a real front/body/back-matter directory",plain.chapters.map {it.title}==listOf("Translator's Preface","The Shape of Silence","Acknowledgments","Bibliography","Index"))
+            verify("Copyright fields stay separate and never become contents entries",plain.blocks.count {it.kind=="metadata"}==2&&plain.chapters.none {it.title.contains("ISBN")||it.title.contains("Author:")})
+            verify("Short prose beginning with Notes and numbered footnotes do not become chapters",ChapterScanner.level("Notes are written in the margin")==0&&ChapterScanner.level("1. This is a footnote.")==0)
+            val chinese="纸页\n\n出版说明\n\n说明正文。\n\n第一章 清晨\n\n这是一段正常的正文，既不是标题，也不该被拆散。\n\n译后记\n\n后记正文。\n\n参考文献\n\n文献条目。\n\n作者简介\n\n作者资料。"
+            verify("Chinese front and back matter receive exact standalone destinations",BookStructure.infer(chinese).chapters.map {it.title}==listOf("出版说明","第一章 清晨","译后记","参考文献","作者简介"))
+            val rich=StructuredHtml.parse("<html><body><p><strong>The Quiet Hours</strong></p><p>English words stay together with normal spaces.</p><p>Author: Ada<br/>ISBN: 123</p><figcaption>Figure One</figcaption><pre>line one<br/>line two</pre></body></html>")
+            verify("Bold small titles are structural headings without enlarged-font dependence",rich.first().kind=="heading"&&rich.first().text=="The Quiet Hours")
+            verify("Explicit copyright line breaks do not become joined English fields",rich.any {it.text=="Author: Ada"}&&rich.any {it.text=="ISBN: 123"}&&rich.none {it.text.contains("Ada ISBN")})
+            verify("Captions and preformatted lines retain distinct semantics",rich.any {it.kind=="caption"&&it.text=="Figure One"}&&rich.any {it.kind=="verse"&&it.text=="line one\nline two"})
+            verify("Accented English and closing quotation marks keep word spaces",BookImporter.joinProse("a café","opens quietly")=="a café opens quietly"&&BookImporter.joinProse("he said, “Read.”","Then continued.")=="he said, “Read.” Then continued.")
+            val numberedHeadings=BookImporter.parse(epub("numeric-headings",placeholder,"<html><body><h1>卷一</h1><h2>1</h2><p>第一小节正文。</p><h2>2</h2><p>第二小节正文。</p></body></html>",false),"numeric-headings.epub")
+            verify("Explicit numeric section headings remain real destinations rather than disappearing",numberedHeadings.structure.chapters.any {it.title=="1"}&&numberedHeadings.structure.chapters.any {it.title=="2"})
+            val supplemented=BookImporter.parse(epub("supplemented",nav3,body.replace("</body>","<p>致谢</p><p>谢谢所有读者。</p></body>"),true),"supplemented.epub")
+            verify("A partial source directory is supplemented with actual back-matter headings",supplemented.structure.directorySource=="mixed"&&supplemented.structure.chapters.any {it.title=="致谢"&&it.source=="generated"}&&supplemented.structure.chapters.count {it.source=="epub"}==2)
             if(android.os.Build.VERSION.SDK_INT>=35) {
                 val pdf=File(dir,"geometry.pdf")
                 val doc=PdfDocument();try {
@@ -86,6 +102,17 @@ internal class StructureEvidence(private val host:Instrumentation) {
                 verify("PDF indentation retains a real paragraph boundary",parsed.text.contains("break.\n\nAnother paragraph starts here and continues naturally."))
                 verify("PDF prose with an ellipsis never causes the page to be discarded",parsed.text.contains("An ellipsis .... stays in prose."))
                 verify("PDF marginal page number is excluded from reading text",!parsed.text.endsWith("\n\n1"))
+                val continuation=File(dir,"contents-continuation.pdf");val tocDoc=PdfDocument()
+                val names=listOf("1. First Chapter","2. Second Chapter","3. Third Chapter","4. Final Chapter, with a long descriptive subtitle")
+                for(i in 0..5) {
+                    val p=tocDoc.startPage(PdfDocument.PageInfo.Builder(600,800,i+1).create());val ink=Paint().apply {textSize=16f;color=Color.BLACK}
+                    if(i==0){p.canvas.drawText("CONTENTS",200f,70f,ink);names.take(3).forEachIndexed {j,t->p.canvas.drawText("$t ............ ${j+1}",40f,130f+j*50,ink)}}
+                    else if(i==1)p.canvas.drawText("${names[3]} ............ 4",40f,100f,ink)
+                    else {p.canvas.drawText(names[i-2],40f,100f,ink);p.canvas.drawText("A complete paragraph belongs to this chapter.",40f,150f,ink)}
+                    tocDoc.finishPage(p)
+                };continuation.outputStream().use {tocDoc.writeTo(it)};tocDoc.close()
+                val continued=BookImporter.parse(continuation,"contents-continuation.pdf")
+                verify("A final one-entry contents continuation still resolves its long chapter heading",continued.structure.chapters.any {it.title==names[3]}&&continued.text.indexOf(names[3])==continued.text.lastIndexOf(names[3]))
             }
         }catch(t:Throwable){failure=t.stackTraceToString()}
         finally {dir.deleteRecursively()}

@@ -3,6 +3,7 @@ package com.inkreader.nativeink
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.Layout
@@ -27,14 +28,16 @@ internal data class MenuModel(val title: String, val back: Boolean, val rows: Li
 internal class ReadingMenu(private val sp: (Float) -> Float = { it }) {
     internal data class TextRegion(val value: String, val bounds: RectF, val layout: StaticLayout)
     internal data class HitRegion(val bounds: RectF, val command: MenuCommand?)
-    private data class Row(val bounds: RectF, val labels: List<TextRegion>, val hits: List<HitRegion>, val selected: List<RectF>)
+    private data class Row(val bounds: RectF, val labels: List<TextRegion>, val hits: List<HitRegion>, val selected: List<RectF>, val chevron:RectF?)
     val bounds = RectF()
     private val fill = Paint().apply { color = Color.WHITE }
     private val rule = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(155,155,155);strokeWidth=.7f;style=Paint.Style.STROKE }
+    private val arrow = Paint(Paint.ANTI_ALIAS_FLAG).apply {color=Color.rgb(105,105,105);strokeWidth=1.3f;style=Paint.Style.STROKE;strokeCap=Paint.Cap.ROUND;strokeJoin=Paint.Join.ROUND}
+    private val arrowPath=Path()
     private var header = 58f
     private var rows = emptyList<Row>()
     private var heading: TextRegion? = null
-    private var backLabel: TextRegion? = null
+    private var backBounds: RectF? = null
     private var contentHeight = 0f
     var maxScroll = 0f; private set
     private var scroll = 0f
@@ -71,8 +74,7 @@ internal class ReadingMenu(private val sp: (Float) -> Float = { it }) {
         val headingSize=if(compact)15f else 18f
         heading=text(model.title,headingSize,titleX,top+if(compact)12f else 18f,bounds.right-titleX-labelInset,90)
         header=maxOf(if(compact)44f else 58f,heading!!.layout.height+if(compact)24f else 32f)
-        val backSize=if(compact)22f else 27f
-        backLabel=if(model.back)text("‹",backSize,bounds.left+8f,top+(header-sp(backSize))/2,32f,90,true) else null
+        backBounds=if(model.back)RectF(bounds.left+8f,top,bounds.left+40f,top+header) else null
         val labelSize=if(compact)15f else 21f
         var cursor=0f
         rows=model.rows.map { row ->
@@ -86,8 +88,6 @@ internal class ReadingMenu(private val sp: (Float) -> Float = { it }) {
                 rowHeight=maxOf(unit,label.layout.height+vertical*2)
                 labels+=label.copy(bounds=RectF(label.bounds).apply {offset(0f,(rowHeight-label.layout.height)/2-vertical)})
                 if(row.command!=null) {
-                    val size=if(compact)18f else 23f
-                    labels+=text("›",size,bounds.right-if(compact)32f else 44f,y+(rowHeight-sp(size))/2,if(compact)24f else 32f,105,true)
                     hits+=HitRegion(RectF(bounds.left,y,bounds.right,y+rowHeight),row.command)
                 }
             } else {
@@ -121,7 +121,8 @@ internal class ReadingMenu(private val sp: (Float) -> Float = { it }) {
                     if(control.selected)selected+=r
                 }
             }
-            Row(RectF(bounds.left,y,bounds.right,y+rowHeight),labels,hits,selected).also {cursor+=rowHeight}
+            val chevron=if(row.command!=null&&row.controls.isEmpty())RectF(bounds.right-if(compact)32f else 44f,y,bounds.right-if(compact)8f else 12f,y+rowHeight) else null
+            Row(RectF(bounds.left,y,bounds.right,y+rowHeight),labels,hits,selected,chevron).also {cursor+=rowHeight}
         }
         contentHeight=cursor
         val rowUnit=maxOf(unit,sp(labelSize)*2+if(compact)12f else 20f)
@@ -134,13 +135,20 @@ internal class ReadingMenu(private val sp: (Float) -> Float = { it }) {
     private fun drawText(c:Canvas,label:TextRegion) {
         c.save();c.translate(label.bounds.left,label.bounds.top);label.layout.draw(c);c.restore()
     }
+    private fun drawChevron(c:Canvas,area:RectF,right:Boolean) {
+        val x=area.centerX();val y=area.centerY();val h=if(minimumTouchSize<48f)4f else 5f
+        val dx=h*.58f*if(right)1f else -1f
+        arrowPath.reset();arrowPath.moveTo(x-dx,y-h);arrowPath.lineTo(x+dx,y);arrowPath.lineTo(x-dx,y+h)
+        c.drawPath(arrowPath,arrow)
+    }
     fun draw(c: Canvas, model: MenuModel) {
         c.drawRect(bounds,fill);c.drawRect(bounds,rule)
-        heading?.let {drawText(c,it)};backLabel?.let {drawText(c,it)}
+        heading?.let {drawText(c,it)};backBounds?.let {drawChevron(c,it,false)}
         c.drawLine(bounds.left+20,bounds.top+header,bounds.right-20,bounds.top+header,rule)
         c.save();c.clipRect(bounds.left,bounds.top+header,bounds.right,bounds.bottom);c.translate(0f,-scroll)
         rows.forEachIndexed {i,row->
             row.labels.forEach {drawText(c,it)}
+            row.chevron?.let {drawChevron(c,it,true)}
             row.selected.forEach {r->c.drawLine(r.centerX()-15,r.bottom-5,r.centerX()+15,r.bottom-5,rule)}
             if(i<rows.lastIndex)c.drawLine(bounds.left+20,row.bounds.bottom,bounds.right-20,row.bounds.bottom,rule)
         }

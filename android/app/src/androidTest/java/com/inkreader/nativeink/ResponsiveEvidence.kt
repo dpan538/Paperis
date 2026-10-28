@@ -23,6 +23,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
+import kotlin.math.ceil
 
 /** Native 300-case layout matrix plus independent real WindowManager interaction coverage. */
 internal class ResponsiveEvidence(private val host:Instrumentation,private val arguments:Bundle) {
@@ -80,6 +81,40 @@ internal class ResponsiveEvidence(private val host:Instrumentation,private val a
     private fun coverage(text:String,slices:List<BookLayout.Column>):Boolean = slices.isNotEmpty()&&slices.first().start==0&&slices.last().end==text.length&&
         slices.zipWithNext().all {(a,b)->a.end==b.start}&&slices.joinToString(""){text.substring(it.start,it.end)}==text
 
+    /** Inspect actual ink pixels, independently of glyph metrics or the renderer's path points. */
+    private fun arrowCentered(bitmap:Bitmap,area:RectF,expected:Float):Boolean {
+        var first=bitmap.height;var last=-1
+        for(y in kotlin.math.floor(area.top).toInt().coerceAtLeast(0) until ceil(area.bottom).toInt().coerceAtMost(bitmap.height))
+            for(x in kotlin.math.floor(area.left).toInt().coerceAtLeast(0) until ceil(area.right).toInt().coerceAtMost(bitmap.width))
+                if(Color.red(bitmap.getPixel(x,y))<135){first=minOf(first,y);last=maxOf(last,y)}
+        return last>=first&&abs((first+last+1)/2f-expected)<=.75f
+    }
+    private fun menuArrows(english:Boolean,w:Float,h:Float,sp:(Float)->Float,out:File?=null):Boolean {
+        val titles=if(english)listOf("Files","Contents & progress","Import books","Text & layout","Reading presets","Screen & refresh","Bookmarks","Settings")
+            else listOf("文件","目录与进度","导入书籍","阅读排版","阅读预设","屏幕与刷新","书签","设置")
+        val model=MenuModel(if(english)"Reading menu" else "阅读菜单",true,titles.map {MenuRow(it,MenuCommand(MenuAction.SETTINGS))})
+        val panel=ReadingMenu(sp);panel.place(w,h,model)
+        var inspected=0
+        val image=Bitmap.createBitmap(ceil(panel.bounds.width()).toInt()+2,ceil(panel.bounds.height()).toInt()+2,Bitmap.Config.ARGB_8888)
+        try {
+            for(scroll in listOf(0f,panel.maxScroll).distinct()) {
+                image.eraseColor(Color.WHITE);val state=model.copy(scroll=scroll);panel.place(w,h,state)
+                val canvas=Canvas(image);canvas.translate(-panel.bounds.left,-panel.bounds.top);panel.draw(canvas,state)
+                if(scroll==0f&&out!=null)out.outputStream().use {image.compress(Bitmap.CompressFormat.PNG,100,it)}
+                val compact=ReaderSizing(w,h).phone
+                for(hit in panel.hitRegions) {
+                    val r=RectF(hit.bounds).apply {offset(-panel.bounds.left,-panel.bounds.top-scroll)}
+                    if(r.top<panel.headerHeight||r.bottom>panel.bounds.height())continue
+                    inspected++
+                    val area=RectF(image.width-(if(compact)32f else 42f),r.top+2f,image.width-8f,r.bottom-2f)
+                    if(!arrowCentered(image,area,r.centerY()))return false
+                }
+                if(!arrowCentered(image,RectF(12f,2f,36f,panel.headerHeight-2f),panel.headerHeight/2))return false
+            }
+            return inspected>0
+        }finally {image.recycle()}
+    }
+
     fun runMatrix()=with(host) {
         val out=File(targetContext.getExternalFilesDir(null),"responsive300-verification").also {it.mkdirs()}
         val checks=JSONArray();var failure:String?=null;var context=JSONObject();var rounds=0
@@ -109,6 +144,7 @@ internal class ResponsiveEvidence(private val host:Instrumentation,private val a
                     check(listOf(g.importBounds,g.previous,g.next).all {it.left>=0&&it.top>=0&&it.right<=w&&it.bottom<=h}){"Shelf action leaves safe viewport"}
                     check(!RectF.intersects(g.previous,g.next)&&g.previous.width()>=(if(sizing.phone)35.99f else 47.99f)&&g.next.width()>=(if(sizing.phone)35.99f else 47.99f)){"Shelf paging targets overlap"}
                     check(g.listTop+g.pageSize*g.rowHeight<=g.previous.top-3f){"Shelf row overlaps footer"}
+                    check(menuArrows(english,w,h,::sp,if(selected in setOf(0,24,25,282))File(out,"case-$selected-menu-arrows.png") else null)){"Menu arrow pixels are not centered in their rows/header"}
                     val raster=Bitmap.createBitmap(w.toInt(),h.toInt(),Bitmap.Config.ARGB_8888)
                     val canvas=Canvas(raster);canvas.drawColor(Color.WHITE);book.draw(canvas,book.pageForOffset(text.length/3))
                     check((book.bodyTop.toInt() until book.bodyBottom.toInt() step 4).any {y->(book.margin.toInt() until (book.margin+book.columnWidth).toInt() step 4).any {x->Color.red(raster.getPixel(x,y))<160}}){"Blank raster at source anchor"}
@@ -120,6 +156,11 @@ internal class ResponsiveEvidence(private val host:Instrumentation,private val a
                         verify("Menu detector rejects the hidden-label fault",menuFaults(panel,model).isNotEmpty())
                         panel.place(w,h,model);panel.hitRegions.first {it.command!=null}.bounds.apply {right=left+12f}
                         verify("Menu detector rejects an undersized-touch fault",menuFaults(panel,model).isNotEmpty())
+                        val legacy=Bitmap.createBitmap(80,64,Bitmap.Config.ARGB_8888).apply {eraseColor(Color.WHITE)}
+                        val legacyPaint=android.text.TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {textSize=23f;color=Color.rgb(105,105,105)}
+                        val glyph=android.text.StaticLayout.Builder.obtain("›",0,1,legacyPaint,32).setIncludePad(false).setAlignment(android.text.Layout.Alignment.ALIGN_CENTER).build()
+                        Canvas(legacy).apply {translate(24f,(64f-23f)/2);glyph.draw(this)}
+                        verify("Arrow raster detector rejects the previous font-size centering",!arrowCentered(legacy,RectF(24f,2f,56f,62f),32f));legacy.recycle()
                     }
                     checks.put(JSONObject().put("case",selected).put("passed",true).put("pages",book.pages.size).put("fontSp",sizing.fontSizes[1]).put("columns",book.columns));rounds++
                 }catch(t:Throwable){File(out,"failed-case-$selected.txt").writeText(text);throw t}
@@ -217,6 +258,7 @@ internal class ResponsiveEvidence(private val host:Instrumentation,private val a
                 val menuPoint=ui {activity.inkView.menuButtonPoint};tap(menuPoint.x,menuPoint.y)
                 verify("${p.name}: the visible ellipsis opens the reading menu",ui {activity.inkView.toolsOpen&&activity.inkView.menuPage==MenuPage.ROOT})
                 val root=ui {RectF(activity.inkView.currentMenuLayout.bounds)}
+                if(index in setOf(0,8))capture("$index-root-menu").recycle()
                 touch(MenuAction.SETTINGS)
                 val settings=ui {activity.inkView.menuPage to RectF(activity.inkView.currentMenuLayout.bounds)}
                 verify("${p.name}: Settings opens by visible touch and matches root dimensions ($root -> $settings)",settings.first==MenuPage.SETTINGS&&settings.second==root)

@@ -57,15 +57,19 @@ internal class UpdateEvidence(private val host:Instrumentation) {
         addMonitor(monitor)
         try {
             File(targetContext.filesDir,"updates").deleteRecursively()
-            val future=File(targetContext.getExternalFilesDir(null),"update-fixture.apk");require(future.isFile){"Provide an independently built preview.999 APK fixture"}
+            val future=File(targetContext.getExternalFilesDir(null),"update-fixture.apk");require(future.isFile){"Provide an independently built newer APK fixture"}
+            val archive=checkNotNull(targetContext.packageManager.getPackageArchiveInfo(future.path,0))
+            val version=checkNotNull(archive.versionName)
+            val installedVersion=checkNotNull(targetContext.packageManager.getPackageInfo(targetContext.packageName,0).versionName)
+            require(ReleaseVersion.parse(version)!!>ReleaseVersion.parse(installedVersion)!!){"APK fixture must be newer than the installed app"}
             val cert=AppUpdates.digest(targetContext.packageManager.getPackageInfo(targetContext.packageName,android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES).signingInfo!!.apkContentsSigners.single().toByteArray())
             val activity=startActivitySync(Intent(targetContext,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity
             val updates=activity.appUpdates;waitFor("updater initialization"){!updates.working}
-            val root="https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.999/"
-            val apk="Paperis-0.1.0-preview.999.apk"
+            val root="https://github.com/dpan538/Paperis/releases/download/v$version/"
+            val apk="Paperis-$version.apk"
             var sample=future
-            updates.releaseFeed={JSONArray().put(JSONObject().put("tag_name","v0.1.0-preview.999").put("assets",JSONArray().put(JSONObject().put("name","paperis-update.json").put("browser_download_url",root+"paperis-update.json")).put(JSONObject().put("name",apk).put("size",sample.length()).put("browser_download_url",root+apk)))).toString()}
-            updates.manifestText={JSONObject().put("schemaVersion",1).put("packageName",targetContext.packageName).put("apk",apk).put("versionCode",999).put("versionName","0.1.0-preview.999").put("sha256",AppUpdates.sha(sample)).put("certificateSha256",cert).toString()}
+            updates.releaseFeed={JSONArray().put(JSONObject().put("tag_name","v$version").put("assets",JSONArray().put(JSONObject().put("name","paperis-update.json").put("browser_download_url",root+"paperis-update.json")).put(JSONObject().put("name",apk).put("size",sample.length()).put("browser_download_url",root+apk)))).toString()}
+            updates.manifestText={JSONObject().put("schemaVersion",1).put("packageName",targetContext.packageName).put("apk",apk).put("versionCode",archive.longVersionCode).put("versionName",version).put("sha256",AppUpdates.sha(sample)).put("certificateSha256",cert).toString()}
             val offsets=mutableListOf<Long>();var cut=true
             updates.testDownload={_,offset->
                 offsets+=offset;val input=sample.inputStream();input.skip(offset)

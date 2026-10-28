@@ -257,11 +257,19 @@ internal class ResponsiveEvidence(private val host:Instrumentation,private val a
                 };settle()
                 val menuPoint=ui {activity.inkView.menuButtonPoint};tap(menuPoint.x,menuPoint.y)
                 verify("${p.name}: the visible ellipsis opens the reading menu",ui {activity.inkView.toolsOpen&&activity.inkView.menuPage==MenuPage.ROOT})
-                val root=ui {RectF(activity.inkView.currentMenuLayout.bounds)}
+                val (root,rootViewport)=ui {RectF(activity.inkView.currentMenuLayout.bounds) to activity.inkView.currentViewport}
                 if(index in setOf(0,8))capture("$index-root-menu").recycle()
                 touch(MenuAction.SETTINGS)
-                val settings=ui {activity.inkView.menuPage to RectF(activity.inkView.currentMenuLayout.bounds)}
-                verify("${p.name}: Settings opens by visible touch and matches root dimensions ($root -> $settings)",settings.first==MenuPage.SETTINGS&&settings.second==root)
+                val (settings,sameWindowRoot)=ui {
+                    val v=activity.inkView;val area=v.currentViewport!!
+                    val settings=v.menuPage to RectF(v.currentMenuLayout.bounds)
+                    val expected=if(area==rootViewport)root else {
+                        val panel=ReadingMenu {size->TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP,size,v.resources.displayMetrics)/area.density}
+                        panel.place(area.width,area.height,v.menuModelFor(MenuPage.ROOT));RectF(panel.bounds)
+                    }
+                    settings to expected
+                }
+                verify("${p.name}: Settings opens by visible touch and matches root in the same actual window ($sameWindowRoot -> $settings)",settings.first==MenuPage.SETTINGS&&settings.second==sameWindowRoot)
                 for(page in MenuPage.entries) {
                     ui {activity.inkView.openMenu(page)};settle()
                     ui {val v=activity.inkView;val m=v.currentMenuLayout;verify("${p.name}/$page: all labels and touch regions fit",menuFaults(m,v.currentMenuModel).isEmpty());verify("${p.name}/$page: panel stays inside safe viewport",m.bounds.left>=0&&m.bounds.top>=0&&m.bounds.right<=v.currentViewport!!.width&&m.bounds.bottom<=v.currentViewport!!.height)}

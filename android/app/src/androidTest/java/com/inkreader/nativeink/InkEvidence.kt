@@ -78,6 +78,8 @@ class InkEvidence : Instrumentation() {
         if(extraSuite=="responsive-window") { ResponsiveEvidence(this,evidenceArguments).runWindows(); return }
         if(extraSuite=="screen") { ScreenMaterialEvidence(this,evidenceArguments).run(); return }
         if(extraSuite=="source") { SourcePdfEvidence(this).run(); return }
+        if(extraSuite=="screen-behavior") {ScreenBehaviorEvidence(this).run();return}
+        if(extraSuite=="upgrade-prepare"||extraSuite=="upgrade") {UpgradeEvidence(this,extraSuite=="upgrade-prepare").run();return}
         if(extraSuite=="updates") { UpdateEvidence(this).run(); return }
         if(extraSuite=="update-channel") { UpdateEvidence(this).runLive(); return }
         if(extraSuite=="migration") { MigrationEvidence(this).run(); return }

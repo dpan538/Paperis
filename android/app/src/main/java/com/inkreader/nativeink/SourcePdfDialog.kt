@@ -11,7 +11,7 @@ import java.io.File
 import java.util.concurrent.Executors
 
 /** Native grayscale source pages for checking OCR and diagrams; bounded to one rendered page. */
-internal class SourcePdfDialog(activity:Activity,file:File,start:Int):Dialog(activity,android.R.style.Theme_Material_Light_NoActionBar_Fullscreen) {
+internal class SourcePdfDialog(activity:Activity,file:File,start:Int,keepAwake:Boolean=false):Dialog(activity,android.R.style.Theme_Material_Light_NoActionBar_Fullscreen) {
     private val worker=Executors.newSingleThreadExecutor()
     private var document:PdfRenderer?=null
     private var page=start;private var count=0;private var busy=true;private var error="";private var bitmap:Bitmap?=null
@@ -60,6 +60,7 @@ internal class SourcePdfDialog(activity:Activity,file:File,start:Int):Dialog(act
         override fun performClick():Boolean {super.performClick();return true}
     }
     init {
+        if(keepAwake)window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(view)
         worker.execute {runCatching {document=PdfRenderer(ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY));count=document!!.pageCount;page=page.coerceIn(0,count-1)}.onFailure {error="无法打开 PDF 原页"};activity.runOnUiThread {load()}}
         setOnDismissListener {generation++;bitmap?.recycle();bitmap=null;worker.execute {document?.close()};worker.shutdown()}

@@ -51,7 +51,7 @@ internal class InkMaterial {
         runtime.setInputBuffer("newPage", sample(nextBitmap!!))
     }
 
-    fun draw(canvas: Canvas, elapsedMs: Long, active: Boolean, full: Boolean, tiltX: Float, tiltY: Float, viewport:ReaderViewport?=null) {
+    fun draw(canvas: Canvas, elapsedMs: Long, active: Boolean, full: Boolean, tiltX: Float, tiltY: Float, viewport:ReaderViewport?=null,surface:Boolean=false) {
         // The current viewport owns the window extent, including native recording surfaces.
         val width=viewport?.windowWidth?:canvas.width;val height=viewport?.windowHeight?:canvas.height
         require(width>0&&height>0)
@@ -69,6 +69,7 @@ internal class InkMaterial {
         runtime.setFloatUniform("elapsed", elapsedMs.toFloat())
         runtime.setFloatUniform("active", if (active) 1f else 0f)
         runtime.setFloatUniform("fullRefresh", if (full) 1f else 0f)
+        runtime.setFloatUniform("surfaceTransition",if(surface)1f else 0f)
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
     }
 
@@ -93,6 +94,7 @@ internal class InkMaterial {
             uniform float elapsed;
             uniform float active;
             uniform float fullRefresh;
+            uniform float surfaceTransition;
 
             float windowDistance(float2 p, float inset, float radius) {
                 float2 q = abs(p - (surfaceBounds.xy+surfaceBounds.zw) * 0.5) - ((surfaceBounds.zw-surfaceBounds.xy) * 0.5 - inset - radius);
@@ -110,7 +112,8 @@ internal class InkMaterial {
                 float grain = structure.eval(dp*1.86).r;
                 float local = structure.eval(dp/1.6).g;
                 float settling = active > 0.5 && fullRefresh > 0.5
-                    ? smoothstep(630.0 + local * 55.0, 1000.0 + local * 20.0, elapsed) : 1.0;
+                    ? smoothstep(630.0 + local * 55.0, 1000.0 + local * 20.0, elapsed)
+                    : active > 0.5 && surfaceTransition > 0.5 ? smoothstep(0.0,365.0,elapsed-95.0) : 1.0;
                 float optical = mix(surfaceLighting.x,surfaceLighting.y,settling);
                 float2 pose = viewPose*optical;
                 float2 inkPoint = p + pose*(0.22*scale);

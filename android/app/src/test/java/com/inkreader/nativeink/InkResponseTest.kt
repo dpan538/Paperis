@@ -4,6 +4,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class InkResponseTest {
+    @Test fun sceneTimingChangesWithoutChangingWaveformEndpoints() {
+        for(mode in 0..2)for(scene in RefreshPolicy.Scene.entries) {
+            val r=InkResponse(0);val full=scene==RefreshPolicy.Scene.CLEAN
+            val duration=RefreshPolicy.duration(mode,scene)
+            r.offer(1,100,full,durationMs=duration,surface=scene==RefreshPolicy.Scene.SURFACE)
+            assertEquals(0L,r.canonicalElapsed(100))
+            assertEquals(if(full)InkResponse.FULL_MS else InkResponse.PARTIAL_MS,r.canonicalElapsed(100+duration))
+            assertFalse(r.advance(100+duration-1));assertNotNull(r.active)
+            r.advance(100+duration);assertNull(r.active);assertEquals(1,r.displayed)
+        }
+        assertTrue(RefreshPolicy.duration(0,RefreshPolicy.Scene.MENU)<RefreshPolicy.duration(0,RefreshPolicy.Scene.PAGE))
+        assertTrue(RefreshPolicy.duration(2,RefreshPolicy.Scene.PAGE)<RefreshPolicy.duration(1,RefreshPolicy.Scene.PAGE))
+    }
+    @Test fun changingModeKeepsInFlightTimingAndLatestSurfaceTarget() {
+        val r=InkResponse(0)
+        r.offer(1,0,durationMs=600,surface=true)
+        r.offer(2,40,durationMs=140)
+        assertEquals(600L,r.duration);assertTrue(r.active!!.surface)
+        r.advance(600);assertEquals(140L,r.duration);assertEquals(2,r.displayed)
+    }
+    @Test fun queuedCleanRetainsItsDurationAndSurfaceChange() {
+        val r=InkResponse(0);r.offer(1,0,durationMs=200)
+        r.offer(2,10,full=true,durationMs=880,surface=true)
+        r.offer(3,20,durationMs=140)
+        r.advance(200)
+        assertEquals(3,r.displayed);assertTrue(r.active!!.full);assertTrue(r.active!!.surface);assertEquals(880L,r.duration)
+    }
     @Test fun rapidInputRetainsOnlyTheLatestTarget() {
         val display = InkResponse(0)
         assertTrue(display.offer(1, 100))

@@ -5,13 +5,14 @@ plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 android {
     namespace = "com.inkreader.nativeink"
     compileSdk = 36
+    testBuildType=providers.gradleProperty("paperisTestBuildType").getOrElse("debug")
     defaultConfig {
         applicationId = "io.github.dpan538.inkreader.preview"
         ndk { abiFilters += "arm64-v8a" }
         minSdk = 33
         targetSdk = 36
-        versionCode = providers.gradleProperty("paperisVersionCode").orNull?.toInt() ?: 17
-        versionName = providers.gradleProperty("paperisVersionName").getOrElse("0.1.0-preview.17")
+        versionCode = providers.gradleProperty("paperisVersionCode").orNull?.toInt() ?: 18
+        versionName = providers.gradleProperty("paperisVersionName").getOrElse("1.0.0")
         testInstrumentationRunner = "com.inkreader.nativeink.InkEvidence"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
@@ -20,7 +21,7 @@ android {
     if (localPreviewKey.isFile) {
         signingConfigs { getByName("debug") { storeFile = localPreviewKey } }
     }
-    buildTypes { getByName("release") { isMinifyEnabled = false } }
+    buildTypes { getByName("release") { isMinifyEnabled = false; signingConfig=signingConfigs.getByName("debug") } }
     lint { abortOnError = true }
 }
 kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }

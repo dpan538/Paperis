@@ -26,7 +26,8 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         val face: Int = 0, val preset: Int = 0, val library: Boolean = false,
         val shelfFolder: String = "", val shelfPage: Int = 0, val notice: String = "", val busy: Boolean = false,
         val english: Boolean = false, val night: Boolean = false, val dark: Boolean = false, val lightStep: Int = 1,
-        val warmth:Int=2,val brightnessSet:Boolean=false,val contrast:Int=1, val menuScroll: Float = 0f, val update:UpdateUi=UpdateUi(),val updateVersion:String="") {
+        val warmth:Int=2,val brightnessSet:Boolean=false,val contrast:Int=1, val menuScroll: Float = 0f, val update:UpdateUi=UpdateUi(),val updateVersion:String="",
+        val refreshMode:Int=0,val readingAwake:Boolean=false,val directionLocked:Boolean=false,val directionAvailable:Boolean=true) {
         val appearance get() = InkAppearance(preset,night,dark,lightStep,warmth,contrast,optical)
     }
     internal val files = BookFiles(context)
@@ -97,6 +98,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     private fun menuY(frame:Frame)=if(frame.library)shelf.geometry(vw,vh,frame.busy,frame.english).headerY-uiSp(8f) else layout(frame).headerY-uiSp(6f)
     internal val menuButtonPoint get()=screenPoint(menuCenterX,menuY(logical))
     internal val currentMenuModel get()=menuModel(logical)
+    internal fun menuModelFor(page:MenuPage)=menuModel(logical.copy(menu=page))
     internal val currentMenuLayout get()=readingMenu.also {it.place(vw,vh,menuModel(logical))}
     internal val currentShelf get()=shelf
     internal val baseFontSize get()=fonts[logical.fontStep]
@@ -125,8 +127,14 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     internal val materialSensor get() = surfaceLight.sensorName
     internal val materialSensorRunning get() = surfaceLight.running
     internal val materialSensorSamples get() = surfaceLight.samples
+    internal val refreshMode get()=logical.refreshMode
+    internal val readingAwake get()=logical.readingAwake
+    internal val directionLocked get()=logical.directionLocked
+    internal val directionAvailable get()=logical.directionAvailable
 
     init {
+        logical=logical.copy(refreshMode=files.preferences.getInt("refreshMode",0).coerceIn(0,2),readingAwake=files.preferences.getBoolean("readingAwake",false))
+        response=InkResponse(logical)
         isFocusable = true; isClickable = true
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
         setBackgroundColor(Color.rgb(244,244,241))
@@ -326,8 +334,12 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 MenuRow(t("深色模式","Dark mode"),controls=listOf(control(if(frame.dark)t("开启","On")else t("关闭","Off"),MenuAction.DARK)))))
             },if(ReaderSizing(vw,vh).phone)0 else rootRows)
             MenuPage.SCREEN -> MenuModel(t("屏幕与刷新","Screen & refresh"), true, listOf(
+                MenuRow(t("刷新方式","Refresh"),controls=listOf(t("自动","Auto"),t("纸感","Paper"),t("轻快","Quick")).mapIndexed {i,title->control(title,MenuAction.REFRESH_MODE,i,frame.refreshMode==i)}),
                 MenuRow(t("倾角光感","Pose lighting"), controls=listOf(control(if(reducedMotion)t("随系统关闭","Reduced")else if(frame.optical)t("开启","On")else t("关闭","Off"),if(reducedMotion)null else MenuAction.OPTICAL))),
-                item(t("清屏刷新","Full refresh"),MenuAction.REFRESH)))
+                MenuRow(t("阅读常亮","Keep awake"),controls=listOf(control(t("跟随系统","System"),MenuAction.KEEP_AWAKE,0,!frame.readingAwake),control(t("阅读时","Reading"),MenuAction.KEEP_AWAKE,1,frame.readingAwake))),
+                MenuRow(t("屏幕方向","Orientation"),controls=listOf(control(t("自动","Auto"),MenuAction.DIRECTION,0,!frame.directionLocked),control(t("锁定当前","Lock current"),if(frame.directionAvailable)MenuAction.DIRECTION else null,1,frame.directionLocked))),
+                item(t("清屏刷新","Full refresh"),MenuAction.REFRESH))+
+                if(frame.directionAvailable)emptyList() else listOf(MenuRow(t("当前窗口由系统控制方向","Orientation is managed by this window"))))
             MenuPage.NAVIGATION -> MenuModel(t("目录与进度","Contents & progress"),true,buildList {
                 add(item(t("书籍开头","Beginning"),MenuAction.CHAPTER,0))
                 add(MenuRow(t("跳转页码","Page"),controls=listOf(control("−",if(frame.draftPage>0)MenuAction.DRAFT_DOWN else null),control("${frame.draftPage+1}/${bookLayout.pages.size}",null),control("+",if(frame.draftPage<bookLayout.pages.lastIndex)MenuAction.DRAFT_UP else null))))
@@ -367,6 +379,9 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
 
     internal fun menuCommand(command: MenuCommand) {
         when (command.action) {
+            MenuAction.REFRESH_MODE -> {request(logical.copy(refreshMode=command.value.coerceIn(0,2)));savePreferences()}
+            MenuAction.KEEP_AWAKE -> {request(logical.copy(readingAwake=command.value==1));savePreferences()}
+            MenuAction.DIRECTION -> (context as? MainActivity)?.setReadingDirection(command.value==1)
             MenuAction.FILES -> if(logical.library) request(logical.copy(library=false,tools=false)) else showFiles()
             MenuAction.PAUSE -> LibraryWork.cancel(context)
             MenuAction.REFLOW -> openMenu(MenuPage.REFLOW)
@@ -461,6 +476,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             .putInt("spacing", logical.spacingStep).putInt("columns", logical.columnMode)
             .putBoolean("optical", logical.optical).apply()
         files.preferences.edit().putInt("face",logical.face).putInt("preset",logical.preset)
+            .putInt("refreshMode",logical.refreshMode).putBoolean("readingAwake",logical.readingAwake)
             .putBoolean("english",logical.english).putBoolean("night",logical.night).putBoolean("dark",logical.dark).putInt("light",logical.lightStep).putInt("warmth",logical.warmth).putBoolean("brightnessSet",logical.brightnessSet).putInt("contrast",logical.contrast).apply()
     }
 
@@ -471,22 +487,27 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         val now = SystemClock.uptimeMillis()
         if (response.advance(now)) material?.update(render(response.displayed),appearance(response.displayed))
         if(response.active==null) material?.settle()
-        material?.draw(canvas, response.elapsed(now), response.active != null, response.active?.full == true,
-            if (reducedMotion || !logical.optical) 0f else surfaceLight.pose.x, if (reducedMotion || !logical.optical) 0f else surfaceLight.pose.y, viewport)
+        material?.draw(canvas, response.canonicalElapsed(now), response.active != null, response.active?.full == true,
+            if (reducedMotion || !logical.optical) 0f else surfaceLight.pose.x, if (reducedMotion || !logical.optical) 0f else surfaceLight.pose.y, viewport,response.active?.surface==true)
         drawCount++
         if (response.active != null && active) postInvalidateOnAnimation()
     }
 
-    private fun request(next: Frame, full: Boolean = false) {
+    private fun request(next: Frame, full: Boolean = false,clean:Boolean=false) {
         if (material == null) return
+        val surface=full||next.appearance!=logical.appearance
+        val scene=when {clean->RefreshPolicy.Scene.CLEAN;surface->RefreshPolicy.Scene.SURFACE
+            next.page!=logical.page||next.fontStep!=logical.fontStep||next.face!=logical.face||next.spacingStep!=logical.spacingStep||next.columnMode!=logical.columnMode->RefreshPolicy.Scene.PAGE
+            else->RefreshPolicy.Scene.MENU}
         if(next.dark!=logical.dark)(context as? android.app.Activity)?.window?.insetsController?.setSystemBarsAppearance(if(next.dark)0 else android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS)
         logical = next
-        val started = response.offer(next, SystemClock.uptimeMillis(), full, reducedMotion)
+        val started = response.offer(next,SystemClock.uptimeMillis(),clean,reducedMotion,RefreshPolicy.duration(next.refreshMode,scene),surface)
         if (started) {
             if (reducedMotion) material?.setInitial(render(next),appearance(next))
             else material?.update(render(response.displayed),appearance(response.displayed))
         }
         invalidate()
+        (context as? MainActivity)?.applyScreenAwake()
         sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
     }
 
@@ -503,7 +524,12 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     }
 
     fun toggleTools() { request(logical.copy(tools = !logical.tools, menu = MenuPage.ROOT,menuScroll=0f)) }
-    fun fullRefresh(closeTools: Boolean = false) { request(if (closeTools) logical.copy(tools = false) else logical, true) }
+    fun fullRefresh(closeTools: Boolean = false) { request(if (closeTools) logical.copy(tools = false) else logical,clean=true) }
+    internal fun setDirectionStatus(locked:Boolean,available:Boolean) {
+        val next=logical.copy(directionLocked=locked,directionAvailable=available)
+        if(next==logical)return
+        if(material==null){logical=next;response=InkResponse(next)}else request(next)
+    }
     fun toggleOptical() {
         if (reducedMotion) return
         val next = logical.copy(optical = !logical.optical)
@@ -625,10 +651,11 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         response=InkResponse(logical)
         if(reducedMotion) material?.setInitial(render(logical),appearance(logical))
         else {
-            response.offer(logical,SystemClock.uptimeMillis(),true)
+            response.offer(logical,SystemClock.uptimeMillis(),durationMs=RefreshPolicy.duration(logical.refreshMode,RefreshPolicy.Scene.SURFACE),surface=true)
             material?.update(render(logical),appearance(logical))
         }
         invalidate()
+        (context as? MainActivity)?.applyScreenAwake()
     }
     internal fun fontImported() {
         customFace=files.customTypeface()

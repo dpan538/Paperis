@@ -112,3 +112,17 @@ adb -s YOUR_TEST_SERIAL shell am instrument -w -e suite backup io.github.dpan538
 ```
 
 `backup` 会创建专用测试文件夹并通过英文 DocumentsUI 选择该目录。OCR 模型随包提供，首次构建从固定的 JitPack 坐标下载 Tesseract4Android，并从 Maven Central 下载 ONNX Runtime Android 1.23.2；模型来源、版本和 SHA-256 位于 `assets/ocr/models.json`。
+
+## 正式版验收
+
+正式 APK 使用 release 构建和项目既有签名；密钥不进入仓库。匹配的仪器测试可直接运行在不可调试的正式包上：
+
+```sh
+JAVA_HOME=/path/to/jdk21 GRADLE_USER_HOME=/path/to/gradle-home \
+  ./android/gradlew -p android -PpaperisTestBuildType=release \
+  :app:assembleRelease :app:assembleReleaseAndroidTest :app:testReleaseUnitTest :app:lintRelease
+python3 tools/verify_reader.py --serial YOUR_EMULATOR_SERIAL --allow-reset-test-data \
+  --build-type release --install --suite screen-behavior --suite responsive300 --suite responsive-window
+```
+
+`screen-behavior` 通过实际触摸切换刷新模式，对同页不同模式和连续翻页后的终帧逐像素比较；检查材质过渡、减少动态、前后台常亮释放、文件页恢复系统行为、真实显示旋转锁定与重新启动后的正文锚点。`upgrade-prepare` 在已发布 preview.17 上建立自有夹具，实际覆盖安装 release APK 后由 `upgrade` 核对原文件、阅读位置、书签、预设和签名。两阶段必须使用各自匹配的测试变体；不要清除应用数据。

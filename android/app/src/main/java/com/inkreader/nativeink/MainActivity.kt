@@ -21,6 +21,9 @@ class MainActivity : Activity() {
     private var readingWork=false
     private var attachingBook=""
     private var visible=false
+    private var resumed=false
+    private var focused=false
+    private lateinit var readingOrientation:ReadingOrientation
     internal lateinit var readerFeedback:ReaderFeedback
     private var feedbackDialog:FeedbackDialog?=null
     internal val feedbackOpen get()=feedbackDialog?.isShowing==true
@@ -38,12 +41,14 @@ class MainActivity : Activity() {
             if(value.phase==UpdatePhase.READY&&installOnReady) {installOnReady=false;appUpdates.install(this)}
         }
         setContentView(inkView)
+        readingOrientation=ReadingOrientation(this,inkView.files.preferences,inkView::setDirectionStatus)
+        readingOrientation.apply()
         fullscreen()
         onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
             if (!inkView.backFromTools()) { if (!inkView.libraryOpen) inkView.showFiles() else finish() }
         }
         LibraryWork.observer={notice,busy->if(!isDestroyed&&visible){
-            if(busy)window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            applyScreenAwake()
             if(busy)inkView.showFiles(notice,true)
             else if(LibraryWork.pending(this)&&LibraryWork.mayResume(this))startWork()
             else {
@@ -61,6 +66,24 @@ class MainActivity : Activity() {
     internal fun updateLaunchLanguage(english: Boolean) {
         // Android persists this theme for the next system-provided launch frame.
         splashScreen.setSplashScreenTheme(if (english) R.style.InkThemeEnglish else R.style.InkTheme)
+    }
+    internal fun applyScreenAwake() {
+        if(!::inkView.isInitialized)return
+        val keep=resumed&&visible&&focused&&(importing||(!inkView.libraryOpen&&inkView.readingAwake&&!feedbackOpen))
+        val has=window.attributes.flags and android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON!=0
+        if(keep!=has) {
+            if(keep)window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+    internal fun setReadingDirection(lock:Boolean){readingOrientation.choose(lock)}
+    override fun onConfigurationChanged(newConfig:android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if(::readingOrientation.isInitialized)readingOrientation.configurationChanged()
+    }
+    override fun onMultiWindowModeChanged(inMultiWindowMode:Boolean,newConfig:android.content.res.Configuration) {
+        super.onMultiWindowModeChanged(inMultiWindowMode,newConfig)
+        if(::readingOrientation.isInitialized)readingOrientation.apply()
     }
 
     private fun openFeedback() {
@@ -174,7 +197,7 @@ class MainActivity : Activity() {
         val current=job?:runCatching {org.json.JSONObject(LibraryWork.journal(this).readText())}.getOrNull()
         readingWork=current?.optString("kind")=="reflow"&&current.optString("id")==inkView.currentBookId
         LibraryWork.start(this,job)
-        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        applyScreenAwake()
         inkView.showFiles(inkView.text("正在准备…","Preparing…"),true)
     }
     private fun reprocess(forceOcr:Boolean) {
@@ -208,7 +231,7 @@ class MainActivity : Activity() {
         val entry=inkView.files.get(inkView.currentBookId)?:return
         val file=inkView.files.original(entry)?:return
         val page=inkView.currentStructure.blocks.lastOrNull {it.start<=inkView.currentOffset&&it.page>=0}?.page?:0
-        SourcePdfDialog(this,file,page).show()
+        SourcePdfDialog(this,file,page,inkView.readingAwake).show()
     }
     private fun treeFiles(tree: Uri): List<Pair<Uri,String>> {
         val result = mutableListOf<Pair<Uri,String>>(); var visited = 0
@@ -246,7 +269,7 @@ class MainActivity : Activity() {
             }
         }
     }
-    override fun onDestroy() { LibraryWork.observer=null;feedbackDialog?.dismiss();if(::readerFeedback.isInitialized)readerFeedback.close();imports.shutdown();if(::appUpdates.isInitialized)appUpdates.close(); super.onDestroy() }
+    override fun onDestroy() { if(::readingOrientation.isInitialized)readingOrientation.close();LibraryWork.observer=null;feedbackDialog?.dismiss();if(::readerFeedback.isInitialized)readerFeedback.close();imports.shutdown();if(::appUpdates.isInitialized)appUpdates.close(); super.onDestroy() }
 
     private fun fullscreen() {
         window.insetsController?.apply {
@@ -257,12 +280,13 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) fullscreen() }
-    override fun onPause() { inkView.pause(); super.onPause() }
+    override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus);focused=hasFocus;if (hasFocus) fullscreen();if(::readingOrientation.isInitialized)readingOrientation.setForeground(resumed&&focused);applyScreenAwake() }
+    override fun onPause() { resumed=false;if(::readingOrientation.isInitialized)readingOrientation.setForeground(false);applyScreenAwake();inkView.pause(); super.onPause() }
     override fun onStart() {super.onStart();visible=true}
     override fun onStop() {visible=false;window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);if(!isChangingConfigurations&&LibraryWork.active)LibraryWork.cancel(this,false);super.onStop()}
     override fun onResume() {
         super.onResume()
+        resumed=true
         if(::inkView.isInitialized) {
             inkView.resume()
             if(LibraryWork.active)inkView.showFiles(LibraryWork.message,true)
@@ -271,6 +295,8 @@ class MainActivity : Activity() {
             else if(!localTask&&inkView.importBusy){if(readingWork){readingWork=false;inkView.reloadReading()}else inkView.showFiles()}
         }
         if(::appUpdates.isInitialized)appUpdates.returnedToApp(this)
+        if(::readingOrientation.isInitialized)readingOrientation.setForeground(focused)
+        applyScreenAwake()
     }
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         when (keyCode) {

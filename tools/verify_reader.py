@@ -11,6 +11,9 @@ import sys
 PACKAGE = "io.github.dpan538.inkreader.preview"
 RUNNER = PACKAGE + ".test/com.inkreader.nativeink.InkEvidence"
 SUITES = {
+    "screen-behavior": ("screen-behavior-verification", "screen-behavior-report.json"),
+    "upgrade-prepare": ("upgrade-verification", "upgrade-prepare-report.json"),
+    "upgrade": ("upgrade-verification", "upgrade-report.json"),
     "responsive300": ("responsive300-verification", "responsive300-report.json"),
     "responsive-window": ("responsive-window-verification", "responsive-window-report.json"),
     "source": ("source-verification", "source-report.json"),
@@ -39,6 +42,7 @@ def main():
     parser.add_argument("--adb", default=os.environ.get("ADB", shutil.which("adb") or "adb"))
     parser.add_argument("--allow-reset-test-data", action="store_true", help="Acknowledge that native suites reset reader preferences and test library state")
     parser.add_argument("--install", action="store_true", help="Install the already-built app and test APKs")
+    parser.add_argument("--build-type",choices=("debug","release"),default="debug",help="Variant of the already-built app and matching instrumentation APK")
     parser.add_argument("--suite", action="append", choices=SUITES)
     parser.add_argument("--private-corpus", type=Path, help="Optional local EPUB/PDF corpus and independent expectations.json/migration.json")
     parser.add_argument("--output", type=Path, default=Path("local/verification/reader-quality"))
@@ -64,7 +68,8 @@ def main():
     adb("shell", "wm", "density", "320")
     adb("shell", "settings", "put", "system", "font_scale", "1.0")
     if args.install:
-        for file in ("android/app/build/outputs/apk/debug/app-debug.apk", "android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"):
+        variant=args.build_type
+        for file in (f"android/app/build/outputs/apk/{variant}/app-{variant}.apk", f"android/app/build/outputs/apk/androidTest/{variant}/app-{variant}-androidTest.apk"):
             print(adb("install", "-r", str(root / file)).strip(), flush=True)
     remote_root = "/sdcard/Android/data/" + PACKAGE + "/files/"
     if args.private_corpus:
@@ -72,7 +77,7 @@ def main():
         for file in sorted(args.private_corpus.iterdir()):
             if file.is_file() and (file.suffix.lower() in (".epub", ".pdf") or file.name in ("expectations.json", "migration.json")):
                 adb("push", str(file.resolve()), remote_root + "import-samples/" + file.name)
-    suites = args.suite or ["screen", "quality", "structure", "reflow", "responsive300", "responsive-window", "reading-revision", "experience", "viewport", "comics300"]
+    suites = args.suite or ["screen", "screen-behavior", "quality", "structure", "reflow", "responsive300", "responsive-window", "reading-revision", "experience", "viewport", "comics300"]
     if args.private_corpus and not args.suite:
         suites += ["documents", "anchors"]
         if (args.private_corpus / "migration.json").is_file():
@@ -110,7 +115,7 @@ def main():
                 record["reviewFindings"] = reviews
             if not record["passed"]:
                 context = result.get("failureContext", {})
-                replay = [sys.executable, str(Path(__file__).resolve()), "--adb", args.adb, "--serial", args.serial, "--allow-reset-test-data", "--suite", suite]
+                replay = [sys.executable, str(Path(__file__).resolve()), "--adb", args.adb, "--serial", args.serial, "--allow-reset-test-data", "--build-type",args.build_type,"--suite", suite]
                 for name in ("seed", "profile", "font", "columns", "case"):
                     if suite in ("responsive300", "responsive-window") and name != "case":
                         continue

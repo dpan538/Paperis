@@ -14,9 +14,9 @@
 
 ## 下载与安装
 
-[![下载 Android APK](https://img.shields.io/badge/下载_Android_APK-0.1.0--preview.17-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.17/Paperis-0.1.0-preview.17.apk)
+[![下载 Android APK](https://img.shields.io/badge/下载_Android_APK-1.0.0-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v1.0.0/Paperis-1.0.0.apk)
 
-**[直接下载 APK](https://github.com/dpan538/Paperis/releases/download/v0.1.0-preview.17/Paperis-0.1.0-preview.17.apk)** · [版本说明与历史下载](https://github.com/dpan538/Paperis/releases)
+**[直接下载 APK](https://github.com/dpan538/Paperis/releases/download/v1.0.0/Paperis-1.0.0.apk)** · [版本说明与历史下载](https://github.com/dpan538/Paperis/releases)
 
 需要 **Android 13 及以上、ARM64 设备**。下载后按系统提示安装；已有官方预览版可直接覆盖升级，也可在应用内检查更新。
 
@@ -25,6 +25,7 @@
 | 功能 | 阅读体验 |
 | --- | --- |
 | **纸墨质感** | 白瓷、护眼、类纸三种材质，细腻纹理与自然墨迹过渡。 |
+| **屏幕与刷新** | 自动、纸感、轻快三种刷新方式，支持阅读时常亮与方向锁定。 |
 | **阅读预设** | 五档冷暖、三档对比度与亮度，支持夜间前光模拟和黑底白字的深色模式。 |
 | **自由排版** | 调整字体、字号与行距，导入自定义字体；根据可用空间适配单栏与双栏，调整后保留阅读位置。 |
 | **章节导航** | 保留原书目录与标题层级，缺少有效目录时自动生成，兼顾中英文段落与换行。 |
@@ -49,7 +50,7 @@
 
 Paperis 重点适配主流 Android 手机与小米平板，支持横竖屏、分屏、系统大字号和不同窗口尺寸。手机采用适合小屏的字号与单栏布局，大平板保留宽屏阅读效果；**小米 Pad 9 Pro Max** 继续作为主要平板适配目标。
 
-目前为预览版本，已通过手机与平板窗口的模拟器验证，仍需结合具体小米实机验收。墨水屏质感与前光均为视觉模拟。
+当前正式版为 **1.0.0**，已通过手机与平板窗口的模拟器验证，仍需结合具体小米实机验收。墨水屏质感与前光均为视觉模拟。
 
 ## 隐私与许可
 

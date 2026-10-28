@@ -27,6 +27,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        updateLaunchLanguage(getSharedPreferences("files", MODE_PRIVATE).getBoolean("english", false))
         window.setDecorFitsSystemWindows(false)
         getSystemService(android.app.NotificationManager::class.java)?.apply {cancelAll();deleteNotificationChannel("library")}
         readerFeedback=ReaderFeedback(applicationContext) { feedbackDialog?.refresh() }
@@ -55,6 +56,11 @@ class MainActivity : Activity() {
         else if(LibraryWork.pending(this))inkView.showFiles(inkView.text("上次整理未完成，可在设置中继续","Unfinished work can be resumed in Settings"))
         acceptIntent(intent)
         inkView.post {if(!inkView.libraryOpen)repairOpenedBook()}
+    }
+
+    internal fun updateLaunchLanguage(english: Boolean) {
+        // Android persists this theme for the next system-provided launch frame.
+        splashScreen.setSplashScreenTheme(if (english) R.style.InkThemeEnglish else R.style.InkTheme)
     }
 
     private fun openFeedback() {

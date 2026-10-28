@@ -29,6 +29,8 @@ Gradle distributions and build tools contain additional components with their ow
 
 Android Canvas, AGSL, text layout, PDF APIs, system file pickers and system fonts are supplied by the device platform. This repository does not redistribute the Android SDK or system font files. Custom fonts and imported books are user-provided local content and are not relicensed by Paperis.
 
+The outlined launch slogans were typeset with [Noto Serif CJK SC Regular](https://github.com/notofonts/noto-cjk/tree/main/Serif), copyright © 2017–2023 Adobe, licensed under the [SIL Open Font License 1.1](https://github.com/notofonts/noto-cjk/blob/main/Serif/LICENSE). These are fixed vector text artwork; no font file is bundled.
+
 The text and document fixtures in `android/app/src/androidTest/assets/fixtures/` are original minimal testing examples covered by the project MIT license. The test-only fixture provider can copy a device font into its temporary test storage; that font is not shipped in this repository or in the production app.
 
 No BOOX, Hanvon or Xteink product photographs, interface artwork or branding are included. Paperis is an independent project.

@@ -22,18 +22,22 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
     val spacing: Float = .67f, val columnMode: Int = 0, val face: Typeface = Typeface.create("serif", Typeface.NORMAL),
     private val protectTails:Boolean=true,val structure:BookStructure=BookStructure.infer(text),private val imageProvider:(String)->android.graphics.Bitmap?={null},private val imageSize:(String)->Pair<Int,Int>?={null}) {
     data class Column(val firstLine: Int, val lastLine: Int, val start: Int, val end: Int)
-    val margin = (viewportWidth*.054f).coerceIn(24f,if(viewportWidth>viewportHeight) 92f else 80f)
+    val sizing = ReaderSizing(viewportWidth, viewportHeight)
+    val chromeMargin = (viewportWidth*.054f).coerceIn(24f,if(viewportWidth>viewportHeight) 92f else 80f)
     // A narrow portrait page always stays single-column; the landscape preference is retained.
     val gutter = (viewportWidth*.052f).coerceIn(24f,88f)
-    val columns = if (!structure.comic && viewportWidth > viewportHeight && columnMode != 1 &&
-        viewportWidth-margin*2-gutter >= maxOf(640f,font*20f)) 2 else 1
-    val columnWidth = ((viewportWidth - margin * 2 - gutter * (columns - 1)) / columns).toInt()
+    val columns = if (!structure.comic && columnMode != 1 &&
+        sizing.canUseTwoColumns(font, viewportWidth-chromeMargin*2, gutter)) 2 else 1
+    private val spreadWidth = minOf(viewportWidth-chromeMargin*2,
+        if (structure.comic) Float.MAX_VALUE else if (columns==2) 1760f else maxOf(560f,font*32f))
+    val margin = (viewportWidth-spreadWidth)/2
+    val columnWidth = ((spreadWidth - gutter * (columns - 1)) / columns).toInt().coerceAtLeast(1)
     // Leave an optical half-em for platform CJK hanging punctuation and glyph overhang.
     private val textWidth=(columnWidth-kotlin.math.ceil(font*.5).toInt()).coerceAtLeast(1)
-    val bodyTop = (viewportHeight*.132f).coerceIn(84f,150f)
-    val bodyBottom = viewportHeight - (viewportHeight*.1004f).coerceIn(64f,114f)
-    val headerY = (bodyTop*(73f/150f)).coerceAtLeast(56f)
-    val footerY = viewportHeight-(viewportHeight-bodyBottom)*(62f/114f)
+    val bodyTop = sizing.bodyTop
+    val bodyBottom = viewportHeight-sizing.bottomSpace
+    val headerY = sizing.headerY
+    val footerY = sizing.footerY
     val bodyHeight = bodyBottom - bodyTop
     private val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG or TextPaint.SUBPIXEL_TEXT_FLAG).apply {
         textSize = font; color = Color.BLACK; typeface = face; textLocale = Locale.SIMPLIFIED_CHINESE
@@ -43,7 +47,7 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
             if(block.start !in text.indices||block.end>text.length)return@forEach
             when(block.kind) {
                 "heading"->{
-                    setSpan(RelativeSizeSpan(when(block.level){1->1.42f;2->1.20f;else->1.07f}),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    setSpan(RelativeSizeSpan(when(block.level){1->if(sizing.phone)1.30f else 1.42f;2->1.20f;else->1.07f}),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     setSpan(StyleSpan(Typeface.BOLD),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     if(block.level==1)setSpan(android.text.style.AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }

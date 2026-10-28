@@ -21,21 +21,39 @@ internal class SourcePdfDialog(activity:Activity,file:File,start:Int):Dialog(act
     private val view=object:View(activity) {
         private val destination=RectF()
         private val paint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {typeface=Typeface.create("sans-serif",Typeface.NORMAL)}
+        private val previous=RectF();private val next=RectF();private val close=RectF()
+        private var insets=Insets.NONE
+        init {
+            setOnApplyWindowInsetsListener {_,value->insets=value.getInsets(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout());invalidate();value}
+        }
         override fun onDraw(canvas:Canvas) {
-            val d=resources.displayMetrics.density;val footer=60*d;canvas.drawColor(Color.rgb(232,232,229))
-            bitmap?.let {b->val scale=minOf(width.toFloat()/b.width,(height-footer)/b.height);val w=b.width*scale;val h=b.height*scale
-                destination.set((width-w)/2,(height-footer-h)/2,(width+w)/2,(height-footer+h)/2);canvas.drawBitmap(b,null,destination,paint)}
-            paint.color=Color.DKGRAY;paint.textSize=16*resources.displayMetrics.scaledDensity
-            canvas.drawText("‹",24*d,height-22*d,paint)
-            canvas.drawText("PDF · ${page+1} / $count${if(busy)" …" else ""}",80*d,height-22*d,paint)
-            paint.textAlign=Paint.Align.RIGHT;canvas.drawText("‹          ›          ×",width-24*d,height-22*d,paint);paint.textAlign=Paint.Align.LEFT
-            if(error.isNotEmpty())canvas.drawText(error,24*d,48*d,paint)
+            val d=resources.displayMetrics.density
+            val left=insets.left+12*d;val right=width-insets.right-12*d
+            val bottom=height-insets.bottom-8*d;val top=insets.top+12*d;val toolbar=bottom-56*d
+            canvas.drawColor(Color.rgb(232,232,229))
+            bitmap?.let {b->val scale=minOf((right-left)/b.width,(toolbar-top)/b.height).coerceAtLeast(0f);val w=b.width*scale;val h=b.height*scale
+                destination.set((left+right-w)/2,top+(toolbar-top-h)/2,(left+right+w)/2,top+(toolbar-top+h)/2);canvas.drawBitmap(b,null,destination,paint)}
+            previous.set(left,bottom-48*d,left+48*d,bottom)
+            next.set(right-104*d,bottom-48*d,right-56*d,bottom)
+            close.set(right-48*d,bottom-48*d,right,bottom)
+            paint.color=Color.DKGRAY;paint.textSize=android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,16f,resources.displayMetrics)
+            paint.textAlign=Paint.Align.CENTER
+            for((rect,label) in listOf(previous to "‹",next to "›",close to "×"))canvas.drawText(label,rect.centerX(),rect.centerY()-(paint.fontMetrics.ascent+paint.fontMetrics.descent)/2,paint)
+            val caption="PDF · ${page+1} / $count${if(busy)" …" else ""}"
+            val available=(next.left-previous.right-16*d).coerceAtLeast(1f)
+            val textPaint=android.text.TextPaint(paint)
+            val value=android.text.TextUtils.ellipsize(caption,textPaint,available,android.text.TextUtils.TruncateAt.END).toString()
+            canvas.drawText(value,(previous.right+next.left)/2,previous.centerY()-(paint.fontMetrics.ascent+paint.fontMetrics.descent)/2,paint)
+            paint.textAlign=Paint.Align.LEFT
+            if(error.isNotEmpty())canvas.drawText(error,left,top+32*d,paint)
         }
         override fun onTouchEvent(event:MotionEvent):Boolean {
             if(event.action==MotionEvent.ACTION_UP) {
-                if(event.y<height-72*resources.displayMetrics.density)return performClick()
-                if(event.x<width*.15f||event.x>width-65*resources.displayMetrics.density)dismiss()
-                else if(!busy){page=(page+if(event.x>width-150*resources.displayMetrics.density)1 else -1).coerceIn(0,(count-1).coerceAtLeast(0));load()}
+                when {
+                    close.contains(event.x,event.y)->dismiss()
+                    !busy&&previous.contains(event.x,event.y)->{page=(page-1).coerceAtLeast(0);load()}
+                    !busy&&next.contains(event.x,event.y)->{page=(page+1).coerceAtMost((count-1).coerceAtLeast(0));load()}
+                }
                 performClick()
             };return true
         }

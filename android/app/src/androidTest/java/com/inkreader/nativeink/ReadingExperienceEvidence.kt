@@ -55,7 +55,13 @@ internal class ReadingExperienceEvidence(private val instrumentation: Instrument
             val baseTone=base.getPixel(1704,230)
             verify("Fresh reading defaults to near-neutral Porcelain with night and dark off",ui { activity.inkView.currentPreset==0 && !activity.inkView.nightEnabled && !activity.inkView.darkEnabled } && ((baseTone shr 16) and 255)-(baseTone and 255)<=2)
             base.recycle()
-            tap(3192f,124f);capture("01-reading-menu").recycle()
+            val menuPoint=ui {activity.inkView.menuButtonPoint}
+            val menuTime=SystemClock.uptimeMillis()
+            for((action,time) in listOf(MotionEvent.ACTION_DOWN to menuTime,MotionEvent.ACTION_UP to menuTime+60)) {
+                val event=MotionEvent.obtain(menuTime,time,action,menuPoint.x,menuPoint.y,0);event.source=android.view.InputDevice.SOURCE_TOUCHSCREEN
+                uiAutomation.injectInputEvent(event,true);event.recycle()
+            }
+            settle();capture("01-reading-menu").recycle()
             click("＋ 导入书籍")
             verify("Permanent root-menu Import opens a native import panel",ui { activity.inkView.menuPage==MenuPage.IMPORT && activity.inkView.toolsOpen })
             capture("02-import-panel").recycle()

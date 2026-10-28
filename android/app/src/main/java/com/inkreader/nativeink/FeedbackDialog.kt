@@ -46,8 +46,8 @@ internal class FeedbackDialog(
         fun label(value:String,size:Float)=TextView(context).apply { text=value;textSize=size;setTextColor(ink);typeface=Typeface.create("sans-serif",Typeface.NORMAL) }
         fun button(value:String)=Button(context).apply { text=value;isAllCaps=false;textSize=15f;setTextColor(ink);background=background(if(dark)0xff292929.toInt() else 0xffeaeae9.toInt(),0xff999999.toInt());minHeight=dp(48f) }
         val header=LinearLayout(context).apply { gravity=Gravity.CENTER_VERTICAL }
-        header.addView(label(t("意见反馈","Feedback"),20f),LinearLayout.LayoutParams(0,dp(48f),1f))
-        header.addView(button(t("返回","Back")).apply { setOnClickListener { dismiss() } },LinearLayout.LayoutParams(dp(78f),dp(48f)))
+        header.addView(label(t("意见反馈","Feedback"),20f).apply {minHeight=dp(48f);gravity=Gravity.CENTER_VERTICAL},LinearLayout.LayoutParams(0,-2,1f))
+        header.addView(button(t("返回","Back")).apply { setOnClickListener { dismiss() };setPadding(dp(12f),dp(8f),dp(12f),dp(8f)) },LinearLayout.LayoutParams(-2,-2))
         body.addView(header)
         body.addView(label(t("描述问题、发生步骤或修改建议。","Describe the issue, steps or suggestion."),14f),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(20f);bottomMargin=dp(12f) })
         editor=EditText(context).apply {
@@ -86,8 +86,8 @@ internal class FeedbackDialog(
         fun place() {
             if(root.width<=0 || root.height<=0)return
             val margin=dp(16f)
-            val w=minOf(dp(416f),root.width-left-right-margin*2).coerceAtLeast(dp(160f))
-            val available=(root.height-top-bottom-margin*2).coerceAtLeast(dp(120f))
+            val w=minOf(anchor.width().roundToInt(),root.width-left-right-margin*2).coerceAtLeast(1)
+            val available=(root.height-top-bottom-margin*2).coerceAtLeast(1)
             val h=minOf(anchor.height().roundToInt(),available)
             val y=anchor.top.roundToInt().coerceIn(top+margin,(root.height-bottom-margin-h).coerceAtLeast(top+margin))
             val edge=maxOf(right+margin,(root.width-anchor.right).roundToInt())

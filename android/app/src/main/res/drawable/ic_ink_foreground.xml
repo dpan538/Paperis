@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Preserve the accepted mark. Its ink mass is optically centered within
+         the adaptive icon safe zone, independently of the launcher mask. -->
+    <group android:pivotX="54" android:pivotY="54"
+        android:scaleX="0.84" android:scaleY="0.84"
+        android:translateX="0.20" android:translateY="0.45">
+        <path android:fillColor="#00000000" android:strokeColor="#303030"
+            android:strokeWidth="3"
+            android:pathData="M32,25h44v58h-44zM42,42h24M42,53h24M42,64h17" />
+    </group>
+</vector>

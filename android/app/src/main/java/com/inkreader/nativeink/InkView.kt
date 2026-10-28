@@ -36,7 +36,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     private var structure=files.structure(entry,book)
     internal val currentStructure get()=structure
     private var customFace = files.customTypeface()
-    private val shelf = FileShelf()
+    private val shelf = FileShelf(::uiSp)
     private var shelfFiles = files.list()
     val libraryOpen get() = logical.library
     internal val currentBookId get() = entry.id
@@ -63,7 +63,8 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         return RectF(a.x,a.y,z.x,z.y)
     }
     internal fun text(zh: String, en: String) = if(logical.english) en else zh
-    private val fonts = floatArrayOf(28f, 30f, 32f, 34f, 36f)
+    private val fonts get() = ReaderSizing(vw,vh).fontSizes
+    private fun uiSp(value:Float)=TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP,value,resources.displayMetrics)/resources.displayMetrics.density
     private val spacing = floatArrayOf(.40f, .67f, .95f)
     private data class LayoutKey(val font: Int, val spacing: Int, val columns: Int, val face: Int)
     private val layouts = object : LinkedHashMap<LayoutKey, BookLayout>(4,.75f,true) {
@@ -93,8 +94,13 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(180, 180, 180); strokeWidth = .7f; style = Paint.Style.STROKE }
     private val menuHit = RectF()
     private val menuCenterX get()=vw-(vw*.0634f).coerceIn(36f,108f)
-    internal val menuButtonPoint get()=screenPoint(menuCenterX,layout(logical).headerY-11f)
-    private val readingMenu = ReadingMenu()
+    private fun menuY(frame:Frame)=if(frame.library)shelf.geometry(vw,vh,frame.busy,frame.english).headerY-uiSp(8f) else layout(frame).headerY-uiSp(6f)
+    internal val menuButtonPoint get()=screenPoint(menuCenterX,menuY(logical))
+    internal val currentMenuModel get()=menuModel(logical)
+    internal val currentMenuLayout get()=readingMenu.also {it.place(vw,vh,menuModel(logical))}
+    internal val currentShelf get()=shelf
+    internal val baseFontSize get()=fonts[logical.fontStep]
+    private val readingMenu = ReadingMenu(::uiSp)
     private var downX = 0f
     private var downY = 0f
     private var lastY=0f
@@ -125,10 +131,10 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
         setBackgroundColor(Color.rgb(244,244,241))
         setOnApplyWindowInsetsListener { _,insets ->
-            val stable=insets.getInsetsIgnoringVisibility(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+            val stable=insets.getInsetsIgnoringVisibility(WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout())
             val gestures=insets.getInsets(WindowInsets.Type.mandatorySystemGestures())
             val visible=insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
-            val next=Insets.of(maxOf(stable.left,gestures.left),stable.top,maxOf(stable.right,gestures.right),visible.bottom)
+            val next=Insets.of(maxOf(stable.left,visible.left,gestures.left),maxOf(stable.top,visible.top),maxOf(stable.right,visible.right,gestures.right),maxOf(visible.bottom,stable.bottom))
             if(next!=safeInsets) { safeInsets=next;updateViewport() }
             insets
         }
@@ -155,7 +161,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         layouts.clear()
         logical=logical.copy(page=layout(logical).pageForOffset(savedOffset),menuScroll=0f)
         response=InkResponse(logical)
-        val headerY=layout(logical).headerY-11f
+        val headerY=menuY(logical)
         menuHit.set(menuCenterX-40f,headerY-40f,menuCenterX+40f,headerY+40f)
         material=InkMaterial().also { it.setInitial(render(logical),appearance(logical)) }
         invalidate()
@@ -172,20 +178,20 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         val bookLayout = layout(frame)
         if (frame.library) {
             shelf.draw(c,vw,vh,shelfFiles,frame.shelfFolder,frame.shelfPage,frame.notice,frame.busy,frame.english)
-            drawMenuIcon(c,menuCenterX,bookLayout.headerY-11f)
+            drawMenuIcon(c,menuCenterX,menuY(frame))
             if(frame.tools) drawTools(c,frame)
             return bitmap
         }
-        drawLabel(c, entry.title, bookLayout.margin, bookLayout.headerY, 18f, 110,maxWidth=(vw*.33f-bookLayout.margin).coerceAtLeast(48f))
+        drawLabel(c, entry.title, bookLayout.chromeMargin, bookLayout.headerY, uiSp(bookLayout.sizing.headerSize), 110,maxWidth=(vw*.33f-bookLayout.chromeMargin).coerceAtLeast(24f))
         val chapter=structure.chapters.lastOrNull {it.offset<=bookLayout.offsetForPage(frame.page)}
-        drawLabel(c,chapter?.title ?: "${(frame.page+1)*100/bookLayout.pages.size}%",vw/2,bookLayout.headerY,16f,120,Paint.Align.CENTER,maxWidth=vw*.30f)
-        drawMenuIcon(c,menuCenterX, bookLayout.headerY-11f)
+        drawLabel(c,chapter?.title ?: "${(frame.page+1)*100/bookLayout.pages.size}%",vw/2,bookLayout.headerY,uiSp(bookLayout.sizing.chapterSize),120,Paint.Align.CENTER,maxWidth=vw*.30f)
+        drawMenuIcon(c,menuCenterX,menuY(frame))
         bookLayout.draw(c, frame.page)
         val y = bookLayout.footerY
-        drawLabel(c, "${frame.page + 1} / ${bookLayout.pages.size}", vw / 2, y, 17f, 110, Paint.Align.CENTER)
+        drawLabel(c, "${frame.page + 1} / ${bookLayout.pages.size}", vw / 2, y, uiSp(bookLayout.sizing.footerSize), 110, Paint.Align.CENTER)
         // Quiet end marks are navigation affordances, not a simulated device bezel.
-        drawChevron(c, bookLayout.margin + 5, y - 7, false, frame.page > 0)
-        drawChevron(c, vw - bookLayout.margin - 5, y - 7, true, frame.page < bookLayout.pages.lastIndex)
+        drawChevron(c, bookLayout.chromeMargin + 5, y - 7, false, frame.page > 0)
+        drawChevron(c, vw - bookLayout.chromeMargin - 5, y - 7, true, frame.page < bookLayout.pages.lastIndex)
         if (frame.tools) drawTools(c, frame)
         return bitmap
     }
@@ -306,15 +312,19 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 if (vw < vh) add(MenuRow(t("竖屏保持单栏","Portrait uses one column")))
                 else if(bookLayout.columns==1 && frame.columnMode!=1) add(MenuRow(t("当前窗口适合单栏","One column fits this window")))
             })
-            MenuPage.PRESETS -> MenuModel(t("阅读预设","Reading presets"),true,listOf(
+            MenuPage.PRESETS -> MenuModel(t("阅读预设","Reading presets"),true,buildList {
+                if(ReaderSizing(vw,vh).phone) add(MenuRow(t("材质","Surface"),controls=listOf(t("白瓷","Porcelain"),t("护眼","Gentle"),t("类纸","Paper")).mapIndexed {i,name->control(name,MenuAction.PRESET,i,frame.preset==i)}))
+                else addAll(listOf(
                 MenuRow(t("白瓷","Porcelain"),controls=listOf(control(if(frame.preset==0)t("已选","Selected")else t("选择","Choose"),MenuAction.PRESET,0))),
                 MenuRow(t("护眼","Gentle"),controls=listOf(control(if(frame.preset==1)t("已选","Selected")else t("选择","Choose"),MenuAction.PRESET,1))),
-                MenuRow(t("类纸","Paper"),controls=listOf(control(if(frame.preset==2)t("已选","Selected")else t("选择","Choose"),MenuAction.PRESET,2))),
+                MenuRow(t("类纸","Paper"),controls=listOf(control(if(frame.preset==2)t("已选","Selected")else t("选择","Choose"),MenuAction.PRESET,2)))))
+                addAll(listOf(
                 MenuRow(t("冷暖","Tone"),controls=listOf(t("冷","Cool"),t("微冷","Cooler"),t("中性","Neutral"),t("微暖","Warmer"),t("暖","Warm")).mapIndexed {i,title->control(title,MenuAction.WARMTH,i,i==frame.warmth)},controlsWidth=300f),
                 MenuRow(t("屏幕亮度","Brightness"),controls=listOf(control(t("低","Low"),MenuAction.LIGHT,0,frame.brightnessSet&&frame.lightStep==0),control(t("中","Mid"),MenuAction.LIGHT,1,frame.brightnessSet&&frame.lightStep==1),control(t("高","High"),MenuAction.LIGHT,2,frame.brightnessSet&&frame.lightStep==2),control(t("系统","Auto"),MenuAction.LIGHT,-1,!frame.brightnessSet))),
                 MenuRow(t("对比度","Contrast"),controls=listOf(t("低","Low"),t("中","Mid"),t("高","High")).mapIndexed {i,title->control(title,MenuAction.CONTRAST,i,frame.contrast==i)}),
                 MenuRow(t("夜间模式","Night light"),controls=listOf(control(if(frame.night)t("开启","On")else t("关闭","Off"),MenuAction.NIGHT))),
-                MenuRow(t("深色模式","Dark mode"),controls=listOf(control(if(frame.dark)t("开启","On")else t("关闭","Off"),MenuAction.DARK)))),rootRows)
+                MenuRow(t("深色模式","Dark mode"),controls=listOf(control(if(frame.dark)t("开启","On")else t("关闭","Off"),MenuAction.DARK)))))
+            },if(ReaderSizing(vw,vh).phone)0 else rootRows)
             MenuPage.SCREEN -> MenuModel(t("屏幕与刷新","Screen & refresh"), true, listOf(
                 MenuRow(t("倾角光感","Pose lighting"), controls=listOf(control(if(reducedMotion)t("随系统关闭","Reduced")else if(frame.optical)t("开启","On")else t("关闭","Off"),if(reducedMotion)null else MenuAction.OPTICAL))),
                 item(t("清屏刷新","Full refresh"),MenuAction.REFRESH)))
@@ -372,7 +382,10 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuAction.IMPORT_FILES -> importFiles(false)
             MenuAction.IMPORT_FOLDER -> importFiles(true)
             MenuAction.SETTINGS -> openMenu(MenuPage.SETTINGS)
-            MenuAction.LANGUAGE -> { request(logical.copy(english=command.value==1),true); savePreferences() }
+            MenuAction.LANGUAGE -> {
+                request(logical.copy(english=command.value==1),true); savePreferences()
+                (context as? MainActivity)?.updateLaunchLanguage(logical.english)
+            }
             MenuAction.NIGHT -> { request(logical.copy(night=!logical.night),true); savePreferences() }
             MenuAction.DARK -> { request(logical.copy(dark=!logical.dark),true); savePreferences() }
             MenuAction.LIGHT -> { request(logical.copy(lightStep=command.value.coerceIn(0,2),brightnessSet=command.value>=0),true); applyBrightness();savePreferences() }
@@ -542,6 +555,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     private fun tap(x: Float, y: Float) {
         val model = menuModel(logical)
         readingMenu.place(vw,vh, model)
+        menuHit.set(menuCenterX-24f,menuY(logical)-24f,menuCenterX+24f,menuY(logical)+24f)
         when {
             menuHit.contains(x, y) -> toggleTools()
             logical.tools && readingMenu.bounds.contains(x, y) -> readingMenu.hit(x, y, model)?.let(::menuCommand)
@@ -571,7 +585,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         request(logical.copy(library=true,tools=busy&&logical.tools,notice=notice,busy=busy))
     }
     private fun shelfPage(direction: Int) {
-        val last=((shelf.items(shelfFiles,logical.shelfFolder).size-1)/shelf.pageSize(vh)).coerceAtLeast(0)
+        val last=((shelf.items(shelfFiles,logical.shelfFolder).size-1)/shelf.pageSize(vw,vh,logical.english)).coerceAtLeast(0)
         request(logical.copy(shelfPage=(logical.shelfPage+direction).coerceIn(0,last)))
     }
     private fun shelfCommand(command: ShelfCommand) {

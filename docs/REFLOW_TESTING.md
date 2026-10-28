@@ -46,6 +46,16 @@ python3 tools/verify_reader.py --serial YOUR_EMULATOR_SERIAL --allow-reset-test-
 
 ## 原生分页与位置
 
+`responsive300` 在 Android 原生文本与 Canvas 上执行 25 组窗口 × 三档系统字号（1.0 / 1.3 / 2.0）× 中英文 × 纯文字/插图，共 300 个条件。覆盖 320–440dp 常见手机、短横屏、小米平板参考窗口、分屏和扣除安全留白后的布局断点。每个条件核对源字符连续覆盖、正文与插图边界、正文锚点、菜单标签完整性、手机至少 36dp、平板至少 48dp 的独立参数点击区域与文件列表分页；保存选定条件的原生栅格。检测器另注入丢失末段、隐藏标签和过小点击区域，确认错误不会被忽略。
+
+`responsive-window` 通过真实 WindowManager 切换手机、小平板、大平板及分屏窗口，检查系统栏留白、菜单滚动与触摸、设置面板尺寸、全部菜单页、文件导入入口、系统非线性 SP 换算和字号往返的正文锚点。反馈只在本机填写测试草稿，检查软键盘覆盖与关闭返回，不向反馈服务提交。窗口像素和 dpi 为合成测试参数，不代表对应小米机型的出厂逻辑密度。
+
+```sh
+python3 tools/verify_reader.py --serial YOUR_EMULATOR_SERIAL --allow-reset-test-data --install --suite responsive300 --suite responsive-window
+```
+
+报告包含失败条件和重放命令；`--suite responsive300 --case 216` 重放一个排版条件，`--suite responsive-window --case 0` 重放一个真实窗口。原生截图与报告保留在本地忽略目录。
+
 在 Android 的真实 `StaticLayout` 上组合横竖屏、三种字号、三档行距、单双栏和宋体/黑体，共 72 种条件，使用中英文混排、长链接、中文标点与补充平面字符检查：
 
 - 所有栏的源字符区间从 0 连续覆盖到正文末尾，相邻区间没有空隙或重叠。
@@ -80,4 +90,4 @@ python3 tools/verify_reader.py --serial YOUR_EMULATOR_SERIAL --allow-reset-test-
 
 `backup` 套件从真实 Android DocumentsUI 选择本地 Downloads/Paperis-Backup-Test 文件夹并授予持久读写权限，通过应用内任务导入/重排、写入备份并读回校验；检查 `.partial` 不会被当成完成备份、授权与文件夹选择在 Activity 重建后保留。另导入多页扫描 PDF，离开应用时保存并暂停，返回后自动续做，期间不申请通知权限、不产生通知或运行通知服务。手动暂停后移除所选源文件，再验证从应用内原件与已完成识别页续做。仅在专用可清空设备运行。备份恢复的内容一致性检查与界面人工检查分别进行，不把成功提示当成保存成功的证据。
 
-`source` 套件直接打开保存的 PDF 原件，用实际屏幕截图检查文字、矢量图形和灰度转换，并通过真实触摸点击原页翻页。源文件仍保留完整页面，供核对 OCR 与复杂图表。
+`source` 套件在手机和大平板窗口直接打开保存的 PDF 原件，从实际截图独立寻找纸页边界，检查页比例、文字、矢量图形和灰度转换，并通过真实触摸点击原页翻页。空白窗口必须被检测器拒绝；不再用整屏白色像素比例判断 PDF 是否完整，以免把正确的留白适配误报为空页。源文件仍保留完整页面，供核对 OCR 与复杂图表。

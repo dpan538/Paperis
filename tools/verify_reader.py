@@ -11,6 +11,9 @@ import sys
 PACKAGE = "io.github.dpan538.inkreader.preview"
 RUNNER = PACKAGE + ".test/com.inkreader.nativeink.InkEvidence"
 SUITES = {
+    "responsive300": ("responsive300-verification", "responsive300-report.json"),
+    "responsive-window": ("responsive-window-verification", "responsive-window-report.json"),
+    "source": ("source-verification", "source-report.json"),
     "screen": ("screen-verification", "screen-report.json"),
     "quality": ("quality-verification", "quality-report.json"),
     "reading-revision": ("reading-revision", "reading-revision-report.json"),
@@ -39,7 +42,7 @@ def main():
     parser.add_argument("--suite", action="append", choices=SUITES)
     parser.add_argument("--private-corpus", type=Path, help="Optional local EPUB/PDF corpus and independent expectations.json/migration.json")
     parser.add_argument("--output", type=Path, default=Path("local/verification/reader-quality"))
-    parser.add_argument("--case", type=int, choices=range(900), metavar="0..899", help="Replay a reported material condition and its five-tone group")
+    parser.add_argument("--case", type=int, choices=range(900), metavar="0..899", help="Replay a reported case in the selected suite")
     parser.add_argument("--seed", type=int, choices=range(10), help="Replay a reported fixture")
     parser.add_argument("--profile", type=int, choices=range(5), help="Replay a reported window profile")
     parser.add_argument("--font", type=int, choices=(26, 32, 40), help="Replay a reported text size")
@@ -69,7 +72,7 @@ def main():
         for file in sorted(args.private_corpus.iterdir()):
             if file.is_file() and (file.suffix.lower() in (".epub", ".pdf") or file.name in ("expectations.json", "migration.json")):
                 adb("push", str(file.resolve()), remote_root + "import-samples/" + file.name)
-    suites = args.suite or ["screen", "quality", "structure", "reflow", "reading-revision", "experience", "viewport", "comics300"]
+    suites = args.suite or ["screen", "quality", "structure", "reflow", "responsive300", "responsive-window", "reading-revision", "experience", "viewport", "comics300"]
     if args.private_corpus and not args.suite:
         suites += ["documents", "anchors"]
         if (args.private_corpus / "migration.json").is_file():
@@ -109,6 +112,8 @@ def main():
                 context = result.get("failureContext", {})
                 replay = [sys.executable, str(Path(__file__).resolve()), "--adb", args.adb, "--serial", args.serial, "--allow-reset-test-data", "--suite", suite]
                 for name in ("seed", "profile", "font", "columns", "case"):
+                    if suite in ("responsive300", "responsive-window") and name != "case":
+                        continue
                     if name in context:
                         replay += ["--" + name, str(context[name])]
                 record["replay"] = replay

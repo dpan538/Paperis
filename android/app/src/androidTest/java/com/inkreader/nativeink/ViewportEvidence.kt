@@ -72,7 +72,13 @@ internal class ViewportEvidence(private val host:Instrumentation) {
                     }
                     verify("Compact menu scrolls without turning the book page",ui {activity.inkView.menuScrollOffset>0 && activity.inkView.toolsOpen})
                     capture("04-menu-scrolled").recycle()
-                    val point=ui {activity.inkView.screenPoint(r.centerX(),r.top+58+7*64+32-activity.inkView.menuScrollOffset)}
+                    val point=ui {
+                        val view=activity.inkView
+                        val target=view.currentMenuLayout.hitRegions.single {it.command?.action==MenuAction.SETTINGS}.bounds
+                        val y=target.centerY()-view.menuScrollOffset
+                        check(y>=r.top+view.currentMenuLayout.headerHeight&&y<r.bottom){"Scrolled Settings is not visible"}
+                        view.screenPoint(target.centerX(),y)
+                    }
                     tap(point.x,point.y)
                     verify("Scrolled Settings remains touchable in a short window",ui {activity.inkView.menuPage==MenuPage.SETTINGS})
                 }

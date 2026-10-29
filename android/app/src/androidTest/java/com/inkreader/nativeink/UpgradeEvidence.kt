@@ -42,9 +42,9 @@ internal class UpgradeEvidence(private val host:Instrumentation,private val prep
                 file.writeText("第一章 保留书库\n\n"+(1..30).joinToString("\n\n"){"This original file, reading position and bookmarks survive the application upgrade. 原文件、字号与书签在覆盖安装后保留。 $it"})
                 library.import(android.net.Uri.fromFile(file));val book=library.list().first {it.name==file.name}
                 library.preferences.edit().putString("lastBook",book.id).putInt("preset",2).putInt("warmth",3).putInt("contrast",0)
-                    .putInt("refreshMode",2).putBoolean("readingAwake",true).putInt("orientationAxis",1).commit()
+                    .putInt("refreshMode",2).putBoolean("readingAwake",true).putInt("orientationAxis",targetContext.resources.configuration.orientation).commit()
                 library.reading(book).edit().putInt("offset",77).putInt("font",2).putInt("spacing",0).putStringSet("bookmarks",setOf("123")).commit()
-                marker.edit().putString("id",book.id).putString("original",sha(library.original(book)!!.readBytes())).putString("text",sha(library.text(book).toByteArray())).putString("cert",cert).putString("icon",iconMetrics("1.0.0-icon.png").toString()).commit()
+                marker.edit().putString("id",book.id).putString("original",sha(library.original(book)!!.readBytes())).putString("text",sha(library.text(book).toByteArray())).putString("cert",cert).putString("icon",iconMetrics("1.0.0-icon.png").toString()).putInt("orientationAxis",targetContext.resources.configuration.orientation).commit()
                 verify("Previous release stores an original file, reading preferences and bookmark",library.original(book)!!.isFile)
             }else {
                 verify("Stable APK is 1.0.1 with a higher Android version code",info.versionName=="1.0.1"&&info.longVersionCode==19L)
@@ -56,7 +56,7 @@ internal class UpgradeEvidence(private val host:Instrumentation,private val prep
                 val saved=library.reading(book)
                 verify("Source position, font, spacing and bookmarks survive",saved.getInt("offset",-1)==77&&saved.getInt("font",-1)==2&&saved.getInt("spacing",-1)==0&&saved.getStringSet("bookmarks",emptySet())==setOf("123"))
                 verify("Selected paper, tone and contrast survive",library.preferences.getInt("preset",-1)==2&&library.preferences.getInt("warmth",-1)==3&&library.preferences.getInt("contrast",-1)==0)
-                verify("Existing screen behavior preferences survive",library.preferences.getInt("refreshMode",0)==2&&library.preferences.getBoolean("readingAwake",false)&&library.preferences.getInt("orientationAxis",0)==1)
+                verify("Existing screen behavior preferences survive",library.preferences.getInt("refreshMode",0)==2&&library.preferences.getBoolean("readingAwake",false)&&library.preferences.getInt("orientationAxis",0)==marker.getInt("orientationAxis",-1))
                 val old=JSONObject(marker.getString("icon","{}")!!);val icon=iconMetrics("stable-icon.png")
                 verify("Launcher foreground keeps its accepted size and centering",listOf("width","height").all {icon.getInt(it)==old.getInt(it)}&&
                     kotlin.math.abs(icon.getDouble("cx")-80)<1.5&&kotlin.math.abs(icon.getDouble("cy")-80)<1.5&&

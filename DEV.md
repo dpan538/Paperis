@@ -57,6 +57,12 @@ EPUB 优先使用原书导航和真实锚点；缺少有效目录时依据正文
 
 相关实现：[BookFiles.kt](android/app/src/main/java/com/inkreader/nativeink/BookFiles.kt)、[LibraryWork.kt](android/app/src/main/java/com/inkreader/nativeink/LibraryWork.kt)、[LibraryBackup.kt](android/app/src/main/java/com/inkreader/nativeink/LibraryBackup.kt)。
 
+## 自动复检与提交
+
+导入、补充原文件与重新排版在提交前运行 `ReflowGuard`，检查文本/语义块范围、生成目录目标、图像资产，以及当前可用窗口、手机横竖屏和平板下的实际原生布局。只对有额外证据的问题局部修复；每轮重新检查，候选必须减少问题且不能增加新的严重错误。正文非空白字符、诗歌/引文/图注/插图与权威原目录受到保护，已标识的合成书名和重复 HTML 文件标题有单独的窄范围规则。最多三轮修复，重复、无安全修改或无改善立即停止；严重错误仍存在时拒绝新提交，保留已有书籍、原文件和进度。未能可靠判断的疑点保留原文并记录，不添加读者编辑选项。
+
+每本书的私有目录保存 `quality.json`，包含窗口、问题源位置、候选是否接受、规则、复检结果与停止原因。`PaginationGuard` 只在范围覆盖异常或整页空白时修复分页计划，保留原始字符和原生换行；正常分页不改变。`ReadingAnchorMap` 对仅空白变化按源字符序列映射，避免相同段落的进度/书签跳到第一次出现的位置。报告不上传，也不需要通知或后台服务。
+
 ## 更新、反馈与权限
 
 更新由用户主动发起，从 GitHub 公共版本接口读取版本，在应用内下载并保留进度。安装前核对文件 SHA-256、包名、版本与签名证书，仅接受同仓库、同签名的更高版本，再打开 Android 系统安装确认；首次需由用户授权 Paperis 安装应用。更新清单格式和专用测试夹具见 [CONTRIBUTING](CONTRIBUTING.md#verification)。
@@ -77,4 +83,4 @@ EPUB 优先使用原书导航和真实锚点；缺少有效目录时依据正文
 
 阅读常亮使用前台阅读窗口标志，不修改全局休眠时间。文件页、反馈窗口及后台释放阅读常亮；原有整理任务的前台保活需求独立计算。方向锁定作用于真实 Activity，保存锁定偏好；切回或重启时按系统当前窗口重新锁定；分屏和系统接管时显示真实状态。针对 API 36 的大屏方向行为使用官方兼容属性，仅请求锁定当前方向；保持当前窗口尺寸，避免固定竖横屏请求触发兼容黑边。自动模式保持可旋转、可调整窗口。控制器核对实际显示旋转与配置，系统拒绝时释放锁定，避免无效的已锁定状态。参见 [Android 大屏方向规则](https://developer.android.com/develop/adaptive-apps/guides/app-orientation-aspect-ratio-resizability)。
 
-1.0.0 沿用已有 applicationId 与签名以覆盖升级，versionCode 为 18。发布采用不可调试的 release APK，并使用匹配 release 变体的仪器测试直接验证。官方签名文件保留在本机，不随源码公开。
+1.0.1 沿用已有 applicationId 与签名以覆盖升级，versionCode 为 19（1.0.0 为 18）。发布采用不可调试的 release APK，并使用匹配 release 变体的仪器测试直接验证。官方签名文件保留在本机，不随源码公开。

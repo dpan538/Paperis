@@ -11,8 +11,8 @@ android {
         ndk { abiFilters += "arm64-v8a" }
         minSdk = 33
         targetSdk = 36
-        versionCode = providers.gradleProperty("paperisVersionCode").orNull?.toInt() ?: 18
-        versionName = providers.gradleProperty("paperisVersionName").getOrElse("1.0.0")
+        versionCode = providers.gradleProperty("paperisVersionCode").orNull?.toInt() ?: 19
+        versionName = providers.gradleProperty("paperisVersionName").getOrElse("1.0.1")
         testInstrumentationRunner = "com.inkreader.nativeink.InkEvidence"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

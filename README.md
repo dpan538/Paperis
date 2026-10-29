@@ -9,14 +9,14 @@
 **墨水屏质感 · 自动文本重排 · 离线 OCR · 本地书库**
 
 ![Android 13+](https://img.shields.io/badge/Android-13%2B-555555)
-![Preview](https://img.shields.io/badge/Status-Preview-777777)
+![Stable](https://img.shields.io/badge/Status-Stable-777777)
 [![MIT License](https://img.shields.io/badge/License-MIT-555555)](LICENSE)
 
 ## 下载与安装
 
-[![下载 Android APK](https://img.shields.io/badge/下载_Android_APK-1.0.0-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v1.0.0/Paperis-1.0.0.apk)
+[![下载 Android APK](https://img.shields.io/badge/下载_Android_APK-1.0.1-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v1.0.1/Paperis-1.0.1.apk)
 
-**[直接下载 APK](https://github.com/dpan538/Paperis/releases/download/v1.0.0/Paperis-1.0.0.apk)** · [版本说明与历史下载](https://github.com/dpan538/Paperis/releases)
+**[直接下载 APK](https://github.com/dpan538/Paperis/releases/download/v1.0.1/Paperis-1.0.1.apk)** · [版本说明与历史下载](https://github.com/dpan538/Paperis/releases)
 
 需要 **Android 13 及以上、ARM64 设备**。下载后按系统提示安装；已有官方预览版可直接覆盖升级，也可在应用内检查更新。
 
@@ -27,10 +27,10 @@
 | **纸墨质感** | 白瓷、护眼、类纸三种材质，细腻纹理与自然墨迹过渡。 |
 | **屏幕与刷新** | 自动、纸感、轻快三种刷新方式，支持阅读时常亮与方向锁定。 |
 | **阅读预设** | 五档冷暖、三档对比度与亮度，支持夜间前光模拟和黑底白字的深色模式。 |
-| **自由排版** | 调整字体、字号与行距，导入自定义字体；根据可用空间适配单栏与双栏，调整后保留阅读位置。 |
+| **自由排版** | 调整字体、字号与行距，导入自定义字体；适配单栏与双栏，重排后自动复检并保留阅读位置。 |
 | **章节导航** | 保留原书目录与标题层级，缺少有效目录时自动生成，兼顾中英文段落与换行。 |
 | **离线识别** | 内置中英文离线 OCR，支持扫描 PDF、插图与原页查看。 |
-| **本地书库** | 多选或按文件夹导入，重复文件自动跳过；旧书可重新排版，无需重复导入。 |
+| **本地书库** | 多选或按文件夹导入，重复文件自动跳过；支持单本重新排版与删除，无需重复导入。 |
 | **保存与恢复** | 自动保存阅读进度与书签，支持备份到自选本地文件夹并恢复书库。 |
 
 ## 格式支持
@@ -50,7 +50,7 @@
 
 Paperis 重点适配主流 Android 手机与小米平板，支持横竖屏、分屏、系统大字号和不同窗口尺寸。手机采用适合小屏的字号与单栏布局，大平板保留宽屏阅读效果；**小米 Pad 9 Pro Max** 继续作为主要平板适配目标。
 
-当前正式版为 **1.0.0**，已通过手机与平板窗口的模拟器验证，仍需结合具体小米实机验收。墨水屏质感与前光均为视觉模拟。
+当前正式版为 **1.0.1**，已通过手机与平板窗口的模拟器验证，仍需结合具体小米实机验收。墨水屏质感与前光均为视觉模拟。
 
 ## 隐私与许可
 

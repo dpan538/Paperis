@@ -270,7 +270,8 @@ internal class ResponsiveEvidence(private val host:Instrumentation,private val a
                     settings to expected
                 }
                 verify("${p.name}: Settings opens by visible touch and matches root in the same actual window ($sameWindowRoot -> $settings)",settings.first==MenuPage.SETTINGS&&settings.second==sameWindowRoot)
-                for(page in MenuPage.entries) {
+                // Contextual file actions require a selected row; file-actions covers their real targets.
+                for(page in MenuPage.entries.filterNot {it==MenuPage.FILE_ACTIONS||it==MenuPage.FILE_DELETE}) {
                     ui {activity.inkView.openMenu(page)};settle()
                     ui {val v=activity.inkView;val m=v.currentMenuLayout;verify("${p.name}/$page: all labels and touch regions fit",menuFaults(m,v.currentMenuModel).isEmpty());verify("${p.name}/$page: panel stays inside safe viewport",m.bounds.left>=0&&m.bounds.top>=0&&m.bounds.right<=v.currentViewport!!.width&&m.bounds.bottom<=v.currentViewport!!.height)}
                 }

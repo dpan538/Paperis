@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicReference
 /** An independently built future-version fixture exercises the download, verifier and installer URI. */
 internal class UpdateEvidence(private val host:Instrumentation) {
     /** Run only after publishing the installed version; this uses the actual public release feed. */
-    fun runLive()=with(host) {
+    fun runLive(expectNewer:Boolean=false)=with(host) {
         var failure:String?=null
         File(targetContext.filesDir,"updates").deleteRecursively()
         val updates=AppUpdates(targetContext){}
@@ -25,12 +25,24 @@ internal class UpdateEvidence(private val host:Instrumentation) {
             updates.check()
             val end=SystemClock.uptimeMillis()+60000
             while((updates.working||updates.ui.phase in setOf(UpdatePhase.IDLE,UpdatePhase.CHECKING))&&SystemClock.uptimeMillis()<end)SystemClock.sleep(100)
-            check(updates.ui.phase==UpdatePhase.CURRENT&&updates.ui.message=="No newer version") {"Public release channel: ${updates.ui}"}
+            if(expectNewer) {
+                val installed=targetContext.packageManager.getPackageInfo(targetContext.packageName,0)
+                val item=checkNotNull(updates.candidate) {"No candidate from the real public channel: ${updates.ui}"}
+                check(installed.longVersionCode<item.versionCode&&item.versionCode==BuildConfig.VERSION_CODE.toLong()&&item.versionName==BuildConfig.VERSION_NAME) {"Unexpected public upgrade: $item"}
+                check(updates.ui.phase in setOf(UpdatePhase.AVAILABLE,UpdatePhase.READY)) {"Public release channel: ${updates.ui}"}
+                updates.download()
+                val downloaded=SystemClock.uptimeMillis()+240000
+                while((updates.working||updates.ui.phase!=UpdatePhase.READY)&&SystemClock.uptimeMillis()<downloaded) {
+                    check(updates.ui.phase!=UpdatePhase.ERROR) {"Public APK download: ${updates.ui}"}
+                    SystemClock.sleep(100)
+                }
+                check(!updates.working&&updates.ui.phase==UpdatePhase.READY) {"Public APK did not reach verified READY: ${updates.ui}"}
+            }else check(updates.ui.phase==UpdatePhase.CURRENT&&updates.ui.message=="No newer version") {"Public release channel: ${updates.ui}"}
         } catch(t:Throwable){failure=t.stackTraceToString()}
         finally {updates.close()}
         val out=File(targetContext.getExternalFilesDir(null),"update-verification").also {it.mkdirs()}
-        File(out,"channel-report.json").writeText(JSONObject().put("passed",failure==null).put("version",BuildConfig.VERSION_NAME).put("phase",updates.ui.phase.name).put("error",failure).toString(2))
-        finish(if(failure==null)Activity.RESULT_OK else Activity.RESULT_CANCELED,Bundle().apply {putString("stream",failure?:"The installed version resolves the real public GitHub update manifest\n")})
+        File(out,if(expectNewer)"available-report.json" else "channel-report.json").writeText(JSONObject().put("passed",failure==null).put("expectedVersion",BuildConfig.VERSION_NAME).put("installedVersion",targetContext.packageManager.getPackageInfo(targetContext.packageName,0).versionName).put("candidate",updates.candidate?.json()).put("phase",updates.ui.phase.name).put("error",failure).toString(2))
+        finish(if(failure==null)Activity.RESULT_OK else Activity.RESULT_CANCELED,Bundle().apply {putString("stream",failure?:if(expectNewer)"The previous release downloads and verifies the real public update APK\n" else "The installed version resolves the real public GitHub update manifest\n")})
     }
     fun run()=with(host) {
         val output=File(targetContext.getExternalFilesDir(null),"update-verification").also {it.mkdirs()}

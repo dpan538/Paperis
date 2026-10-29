@@ -24,9 +24,11 @@ internal object BookImporter {
             val body=normalize(decode(file.readBytes()))
             require(body.any {it.isLetterOrDigit()}) {"未找到可重排正文"}
             title=title.replace(Regex("\\s+")," ").take(100)
-            val text=if(body.lineSequence().first()==title)body else "$title\n\n$body"
+            val inserted=body.lineSequence().first()!=title
+            val text=if(!inserted)body else "$title\n\n$body"
             require(text.length<=MAX_TEXT) {"正文超过 200 万字，请拆分后导入"}
-            return ParsedBook(title,text,"TXT",BookStructure.infer(text))
+            val structure=BookStructure.infer(text)
+            return ParsedBook(title,text,"TXT",if(inserted)structure.copy(blocks=structure.blocks.mapIndexed {i,b->if(i==0)b.copy(origin="paperis:book-title")else b})else structure)
         }
         val assembly=when(extension) {
             "epub" -> return epub(file,title,progress,workspace)

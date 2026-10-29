@@ -125,4 +125,4 @@ python3 tools/verify_reader.py --serial YOUR_EMULATOR_SERIAL --allow-reset-test-
   --build-type release --install --suite screen-behavior --suite responsive300 --suite responsive-window
 ```
 
-`screen-behavior` 通过实际触摸切换刷新模式，对同页不同模式和连续翻页后的终帧逐像素比较；检查材质过渡、减少动态、前后台常亮释放、文件页恢复系统行为、真实显示旋转锁定与重新启动后的正文锚点。`upgrade-prepare` 在已发布 preview.17 上建立自有夹具，实际覆盖安装 release APK 后由 `upgrade` 核对原文件、阅读位置、书签、预设和签名。两阶段必须使用各自匹配的测试变体；不要清除应用数据。
+`screen-behavior` 通过实际触摸切换刷新模式，对同页不同模式和连续翻页后的终帧逐像素比较；检查材质过渡、减少动态、前后台常亮释放、文件页恢复系统行为、真实显示旋转锁定与重新启动后的正文锚点。当前 `upgrade-prepare` 在已发布 1.0.0 上建立原创夹具，实际覆盖安装 1.0.1 后由 `upgrade` 核对原文件、阅读位置、书签、预设、屏幕行为和签名。不要清除应用数据。发布后 `update-available` 在旧版下载并核验真实公开安装包，`update-channel` 在新版确认公开通道已是最新；这些套件仅在可清空的专用模拟器运行。

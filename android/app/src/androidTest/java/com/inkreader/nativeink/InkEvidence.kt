@@ -74,6 +74,9 @@ class InkEvidence : Instrumentation() {
     private var evidenceArguments=Bundle()
     override fun onCreate(arguments: Bundle?) {evidenceArguments=arguments?:Bundle();extraSuite=arguments?.getString("suite").orEmpty(); pickerOnly=arguments?.getString("suite")=="picker"; importsSuite=arguments?.getString("suite")=="imports" || pickerOnly; super.onCreate(arguments); start() }
     override fun onStart() {
+        if(extraSuite=="reflow-corpus") {ReflowGuardEvidence(this).runCorpus();return}
+        if(extraSuite=="reflow-guard") {ReflowGuardEvidence(this).run();return}
+        if(extraSuite=="file-actions") {FileActionsEvidence(this).run();return}
         if(extraSuite=="responsive300") { ResponsiveEvidence(this,evidenceArguments).runMatrix(); return }
         if(extraSuite=="responsive-window") { ResponsiveEvidence(this,evidenceArguments).runWindows(); return }
         if(extraSuite=="screen") { ScreenMaterialEvidence(this,evidenceArguments).run(); return }
@@ -82,6 +85,7 @@ class InkEvidence : Instrumentation() {
         if(extraSuite=="upgrade-prepare"||extraSuite=="upgrade") {UpgradeEvidence(this,extraSuite=="upgrade-prepare").run();return}
         if(extraSuite=="updates") { UpdateEvidence(this).run(); return }
         if(extraSuite=="update-channel") { UpdateEvidence(this).runLive(); return }
+        if(extraSuite=="update-available") { UpdateEvidence(this).runLive(true); return }
         if(extraSuite=="migration") { MigrationEvidence(this).run(); return }
         if(extraSuite=="anchors") { AnchorEvidence(this).run(); return }
         if(extraSuite=="reading-revision") { ReadingRevisionEvidence(this).run(); return }

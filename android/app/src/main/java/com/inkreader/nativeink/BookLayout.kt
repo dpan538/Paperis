@@ -77,6 +77,7 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
     val spacingDecisions:List<ParagraphSpacing.Decision>
     private val wordSpacing:FloatArray
     val pages: List<List<Column>>
+    val paginationRepairs:List<String>
 
     init {
         val initial = build()
@@ -101,9 +102,10 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
         layout = if (protectTails) build() else initial
         val spacingPolicy=ParagraphSpacing.decide(text,structure,layout,font)
         spacingDecisions=spacingPolicy.decisions;wordSpacing=spacingPolicy.added
+        val generated:List<List<Column>>
         if(structure.comic&&structure.blocks.any {it.kind=="image"}) {
             val imageLines=structure.blocks.filter {it.kind=="image"}.map {layout.getLineForOffset(it.start)}.distinct().sorted()
-            pages=imageLines.map {line->
+            generated=imageLines.map {line->
                 listOf(Column(line,line,layout.getLineStart(line),layout.getLineEnd(line)))
             }
         } else {
@@ -139,8 +141,10 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
             if(current.size==columns){paged+=current.toList();current.clear()}
         }
         if(current.isNotEmpty())paged+=current.toList()
-        pages=paged
+        generated=paged
         }
+        val checked=PaginationGuard.apply(text,layout,generated,columns,bodyHeight,structure.comic)
+        pages=checked.pages;paginationRepairs=checked.repairs
     }
 
     private class ParagraphGap(private val height:Int):android.text.style.LineHeightSpan {

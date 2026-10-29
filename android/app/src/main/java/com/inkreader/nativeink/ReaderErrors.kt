@@ -11,6 +11,7 @@ internal object ReaderErrors {
         if(!english) return value ?: "无法读取所选文件，请重新选择"
         val source=value.orEmpty()
         return when {
+            source.contains("排版复检") -> "Layout checks did not pass safely. Your existing book is unchanged."
             source.contains("Android 15") -> "PDF text reflow requires Android 15 or later. Try EPUB or TXT."
             source.contains("OCR") -> "Offline OCR could not finish. The original and completed pages are retained for retry."
             source.contains("受保护") -> "This document's text is protected."

@@ -22,6 +22,11 @@ internal object LibraryWork {
     fun journal(context:Context)=File(context.filesDir,"library-work.json")
     fun pending(context:Context)=journal(context).isFile
     fun mayResume(context:Context)=preferences(context).getBoolean("resumeOnOpen",true)
+    @Synchronized fun discardDeletedBook(context:Context,id:String) {
+        check(!active)
+        val job=runCatching {JSONObject(journal(context).readText())}.getOrNull()?:return
+        if(job.optString("kind")=="reflow"&&job.optString("id")==id)journal(context).delete()
+    }
     @Synchronized fun prepare(context:Context,job:JSONObject) {
         val atomic=android.util.AtomicFile(journal(context));val stream=atomic.startWrite()
         try{stream.write(job.toString().toByteArray());atomic.finishWrite(stream)}catch(t:Throwable){atomic.failWrite(stream);throw t}
@@ -62,8 +67,8 @@ internal object LibraryWork {
             val kind=job.getString("kind")
             var notice=when(kind) {
                 "reflow"->{
-                    val entry=checkNotNull(books.get(job.getString("id")));val full=books.reprocess(entry.id,job.optBoolean("ocr")){p,n->update(t("重新排版 · ${entry.title}\n处理 $p / $n 页","Reprocessing · ${entry.title}\nPage $p / $n"))}
-                    t(if(full)"重新排版完成，目录和插图已更新" else "已从保存的文字重新排版；此旧书未保存原文件",if(full)"Reprocessed; contents and illustrations updated" else "Reflowed saved text; this legacy book has no original copy")
+                    val entry=checkNotNull(books.get(job.getString("id")));val full=books.reprocess(entry.id,job.optBoolean("ocr"),ReflowWindow.read(job.optJSONObject("window")),checkProgress={round->update(t("正在复检排版 · 第 $round 轮","Checking layout · pass $round"),true)}){p,n->update(t("重新排版 · ${entry.title}\n处理 $p / $n 页","Reprocessing · ${entry.title}\nPage $p / $n"))}
+                    t(if(full)"重新排版完成，已自动复检" else "已重新排版并复检；此旧书未保存原文件",if(full)"Reprocessed and checked" else "Reflowed and checked; this legacy book has no original copy")
                 }
                 "restore"->{val count=backup.restoreAll {p,n->update(t("正在恢复 $p / $n","Restoring $p / $n"))};t("已从备份恢复 $count 本书","Restored $count books")}
                 "backup"->{val count=backup.backupAll {p,n->update(t("正在备份 $p / $n","Backing up $p / $n"))};t("已校验保存 $count 本书的独立备份","Verified independent backups of $count books")}
@@ -92,7 +97,11 @@ internal object LibraryWork {
         }
         val paused=signal.get()||Thread.currentThread().isInterrupted
         if(result.isFailure&&!paused)preferences(context).edit().putBoolean("resumeOnOpen",false).commit()
-        val value=result.getOrElse {if(paused)"已暂停，原文件和进度已保留，可在设置中继续" else "整理未完成，原书保持不变\n"+ReaderErrors.message(it.message,false)}
+        val value=result.getOrElse {
+            val english=context.getSharedPreferences("files",0).getBoolean("english",false)
+            if(paused)if(english)"Paused; originals and progress are kept. Resume in Settings." else "已暂停，原文件和进度已保留，可在设置中继续"
+            else (if(english)"Reprocessing failed; the existing book is unchanged.\n" else "整理未完成，原书保持不变\n")+ReaderErrors.message(it.message,english)
+        }
         status(value,false)
     }
 }

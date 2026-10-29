@@ -75,13 +75,13 @@ internal class BookAssembly {
     fun add(block:SourceBlock) { if(block.text.isNotBlank())blocks+=block }
     fun finish(title:String,format:String,nav:List<Triple<String,Pair<Int,Int>,String>> = emptyList(),authoritative:Boolean=false):ParsedBook {
         val repaired=BookTextRepair.english(blocks.map {it.text})
-        blocks.forEachIndexed {i,b->if(b.kind !in setOf("verse","image"))b.text=repaired[i]}
+        blocks.forEachIndexed {i,b->if(b.kind !in setOf("verse","image","quote","caption"))b.text=repaired[i]}
         blocks.filter {it.kind=="body"}.forEach {b->
             val level=ChapterScanner.level(b.text)
             if(level>0){b.kind="heading";b.level=level}else if(TextSemantics.metadata(b.text))b.kind="metadata"
         }
         val inserted=!comic&&blocks.firstOrNull()?.text!=title
-        if(inserted) blocks.add(0,SourceBlock(title,"heading",1)) else if(!comic&&blocks.isNotEmpty()) { blocks[0].kind="heading";blocks[0].level=1 }
+        if(inserted) blocks.add(0,SourceBlock(title,"heading",1,origin="paperis:book-title")) else if(!comic&&blocks.isNotEmpty()) { blocks[0].kind="heading";blocks[0].level=1 }
         val combined=mutableMapOf<Int,String>()
         if(nav.isEmpty())for((i,b) in blocks.withIndex()) {
             val key=ChapterScanner.key(b.text)

@@ -11,6 +11,9 @@ import sys
 PACKAGE = "io.github.dpan538.inkreader.preview"
 RUNNER = PACKAGE + ".test/com.inkreader.nativeink.InkEvidence"
 SUITES = {
+    "reflow-corpus": ("reflow-corpus-verification", "reflow-corpus-report.json"),
+    "reflow-guard": ("reflow-guard-verification", "reflow-guard-report.json"),
+    "file-actions": ("file-actions-verification", "file-actions-report.json"),
     "screen-behavior": ("screen-behavior-verification", "screen-behavior-report.json"),
     "upgrade-prepare": ("upgrade-verification", "upgrade-prepare-report.json"),
     "upgrade": ("upgrade-verification", "upgrade-report.json"),
@@ -33,6 +36,7 @@ SUITES = {
     "backup": ("backup-experience", "backup-experience-report.json"),
     "updates": ("update-verification", "update-report.json"),
     "update-channel": ("update-verification", "channel-report.json"),
+    "update-available": ("update-verification", "available-report.json"),
 }
 
 
@@ -77,7 +81,7 @@ def main():
         for file in sorted(args.private_corpus.iterdir()):
             if file.is_file() and (file.suffix.lower() in (".epub", ".pdf") or file.name in ("expectations.json", "migration.json")):
                 adb("push", str(file.resolve()), remote_root + "import-samples/" + file.name)
-    suites = args.suite or ["screen", "screen-behavior", "quality", "structure", "reflow", "responsive300", "responsive-window", "reading-revision", "experience", "viewport", "comics300"]
+    suites = args.suite or ["screen", "screen-behavior", "file-actions", "reflow-guard", "quality", "structure", "reflow", "responsive300", "responsive-window", "reading-revision", "experience", "viewport", "comics300"]
     if args.private_corpus and not args.suite:
         suites += ["documents", "anchors"]
         if (args.private_corpus / "migration.json").is_file():

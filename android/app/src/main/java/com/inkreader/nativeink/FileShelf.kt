@@ -22,6 +22,7 @@ internal class FileShelf(private val sp:(Float)->Float={it}) {
     internal val hitRegions get()=hits.toList()
     private val titles=mutableListOf<TitleRegion>()
     internal val titleRegions get()=titles.toList()
+    internal fun moreBounds(id:String)=hits.firstOrNull {it.second==ShelfCommand("more",id)}?.first?.let(::RectF)
     fun items(files: List<BookFile>, folder: String): List<ShelfItem> {
         val prefix = if (folder.isEmpty()) "" else "$folder/"
         val folders = files.map { it.folder }.filter { it.startsWith(prefix) && it != folder }
@@ -81,7 +82,10 @@ internal class FileShelf(private val sp:(Float)->Float={it}) {
         entries.drop(selected*count).take(count).forEachIndexed { i, entry ->
             val top=g.listTop+i*g.rowHeight
             val titlePaint=TextPaint(Paint.ANTI_ALIAS_FLAG).apply {textSize=sp(if(narrow)15f else 22f);color=Color.rgb(65,65,65)}
-            val titleWidth=(width-g.margin*2-24f-if(narrow)0f else 116f).toInt().coerceAtLeast(1)
+            val actionSize=if(narrow)36f else 48f
+            val rowBounds=RectF(g.margin,top,width-g.margin,top+g.rowHeight-4f)
+            val more=RectF(rowBounds.right-actionSize,rowBounds.centerY()-actionSize/2,rowBounds.right,rowBounds.centerY()+actionSize/2)
+            val titleWidth=(more.left-g.margin-24f).toInt().coerceAtLeast(1)
             val title=if(entry.folder)"▱  ${entry.label}" else entry.label
             val layout=StaticLayout.Builder.obtain(title,0,title.length,titlePaint,titleWidth).setIncludePad(false)
                 .setMaxLines(if(narrow&&!short)2 else 1).setEllipsize(TextUtils.TruncateAt.END).setAlignment(Layout.Alignment.ALIGN_NORMAL).build()
@@ -90,10 +94,15 @@ internal class FileShelf(private val sp:(Float)->Float={it}) {
             titles+=TitleRegion(title,RectF(g.margin+12f,top+10f,g.margin+12f+titleWidth,top+10f+layout.height),layout,metaBaseline+metaPaint.fontMetrics.top)
             c.save();c.translate(g.margin+12f,top+10f);layout.draw(c);c.restore()
             val detail=if(entry.folder)t("文件夹","Folder") else entry.detail+" · "+if(entry.chapters>=0)t("${entry.chapters} 章节","${entry.chapters} chapters") else if(entry.id=="sample")t("试读","Sample") else t("本机书籍","Local book")
-            label(detail,g.margin+12f,metaBaseline,if(narrow)11f else 14f,115,max=width-g.margin*2-24f)
-            if(!narrow)label(if(entry.folder)t("文件夹","Folder") else entry.detail,width-g.margin-100f,top+30f,17f,115,max=100f)
+            label(detail,g.margin+12f,metaBaseline,if(narrow)11f else 14f,115,max=titleWidth.toFloat())
+            if(!entry.folder) {
+                text.color=Color.rgb(if(busy)140 else 85,if(busy)140 else 85,if(busy)140 else 85)
+                val gap=if(narrow)5f else 6f;val radius=if(narrow)1.35f else 1.6f
+                for(dot in -1..1)c.drawCircle(more.centerX()+dot*gap,more.centerY(),radius,text)
+            }
             c.drawLine(g.margin,top+g.rowHeight-6f,width-g.margin,top+g.rowHeight-6f,line)
-            hit(RectF(g.margin,top,width-g.margin,top+g.rowHeight-4f),ShelfCommand(if(entry.folder)"folder" else "book",entry.id))
+            hit(RectF(rowBounds).apply {if(!entry.folder)right=more.left},ShelfCommand(if(entry.folder)"folder" else "book",entry.id))
+            if(!entry.folder)hit(more,ShelfCommand("more",entry.id))
         }
         if(entries.isEmpty())label(t("还没有书籍，请从上方导入。","No books yet. Import above."),g.margin+12f,g.listTop+36f,if(narrow)14f else 21f,110,max=width-g.margin*2-24f)
         if(busy)notice.lineSequence().take(2).forEachIndexed {i,value->label(value,g.margin,g.footerY-70f+i*sp(18f),14f,110)}

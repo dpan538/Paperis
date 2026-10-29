@@ -36,7 +36,7 @@ internal class BookFiles(private val context: Context) {
         }
     }
     val demo = BookFile("sample", "山窗随记.txt", "山窗随记 · 试读", "TXT", "")
-    @Synchronized fun list(): List<BookFile> = entries.toList() + demo
+    @Synchronized fun list(): List<BookFile> = entries.toList() + if(preferences.getBoolean("sampleHidden",false))emptyList() else listOf(demo)
     @Synchronized fun get(id: String) = list().find { it.id == id }
     internal fun bundle(entry:BookFile)=File(directory,entry.bundle.takeIf {it.matches(Regex("[a-f0-9]{64}-v2-[a-z0-9-]{36}"))}?:"${entry.id}-v2")
     fun text(entry: BookFile): String = if (entry.id == "sample") context.assets.open("sample.txt").bufferedReader().use { it.readText().trim() }
@@ -90,13 +90,30 @@ internal class BookFiles(private val context: Context) {
     fun hasOriginal(entry:BookFile)=File(bundle(entry),"original").isFile
     fun original(entry:BookFile)=File(bundle(entry),"original").takeIf {it.isFile}
     fun needsRepair(entry:BookFile)=entry.id!="sample" && runCatching {JSONObject(File(bundle(entry),"structure.json").readText()).optInt("revision")<BookStructure.REVISION}.getOrDefault(true)
+    /** Commit the library change first. Never follow a source URI or touch independent backups. */
+    @Synchronized fun delete(id:String):Boolean {
+        val entry=get(id)?:return false
+        if(id=="sample")check(preferences.edit().putBoolean("sampleHidden",true).commit())
+        else {
+            val at=entries.indexOfFirst {it.id==id};entries.removeAt(at)
+            try {writeIndex()}catch(t:Throwable){entries.add(at,entry);throw t}
+            directory.listFiles()?.filter {it.name=="$id.txt"||it.name=="$id.json"||it.name=="$id-v2"||it.name.startsWith("$id-v2-")||it.name.startsWith(".$id-stage-")}?.forEach {it.deleteRecursively()}
+            File(context.filesDir,"import-jobs").listFiles()?.filter {it.name.startsWith("reflow-$id-")||it.name=="attach-$id"}?.forEach {it.deleteRecursively()}
+            val iterator=bitmaps.entries.iterator()
+            while(iterator.hasNext()) {val cached=iterator.next();if(cached.key.startsWith("$id/")){cachedBitmapBytes-=cached.value.allocationByteCount;iterator.remove()}}
+        }
+        reading(entry).edit().clear().commit()
+        if(preferences.getString("lastBook",null)==id)preferences.edit().remove("lastBook").commit()
+        return true
+    }
     @Synchronized fun attachOriginal(id:String,uri:Uri) {
         val entry=checkNotNull(get(id));val job=jobDirectory("attach-$id");val source=File(job,"original")
         try {
             copy(uri,source,BookImporter.MAX_BYTES)
             require(hashFile(source)==id) {"所选文件与这本旧书不一致，请选择原来的同一文件"}
             val parsed=BookImporter.parse(source,entry.name,context=context,workspace=File(job,"assets"))
-            commit(id,entry.name,entry.folder,parsed,source,entry)
+            val checked=checkedReflow(parsed,entry,job)
+            commit(id,entry.name,entry.folder,checked.book,source,entry,checked.report.toString())
         } finally {job.deleteRecursively()}
     }
     internal fun jobDirectory(key:String)=File(context.filesDir,"import-jobs/$key").also {it.mkdirs()}
@@ -114,18 +131,39 @@ internal class BookFiles(private val context: Context) {
             if(!rebuild&&existing?.structured==true&&!needsRepair(existing)&&File(bundle(existing),"structure.json").isFile){job.deleteRecursively();return false}
             val parsed=BookImporter.parse(source,name,progress,context,File(job,"assets"))
             check(!Thread.currentThread().isInterrupted) {"已暂停，进度已保留"}
-            commit(hash,name,existing?.folder?:folder,parsed,source,existing)
+            val checked=checkedReflow(parsed,existing?:BookFile(hash,name,parsed.title,parsed.format,folder),job)
+            commit(hash,name,existing?.folder?:folder,checked.book,source,existing,checked.report.toString())
             job.deleteRecursively();return true
         } catch(t:Throwable) {throw t} // Keep the durable original/checkpoints for an explicit retry.
     }
-    @Synchronized fun reprocess(id:String,forceOcr:Boolean=false,progress:(Int,Int)->Unit={_,_->}):Boolean {
+    @Synchronized fun reprocess(id:String,forceOcr:Boolean=false,window:ReflowWindow?=null,checkProgress:(Int)->Unit={},progress:(Int,Int)->Unit={_,_->}):Boolean {
         val entry=checkNotNull(get(id));require(id!="sample") {"试读书无需重新排版"}
         val raw=original(entry);val job=jobDirectory("reflow-$id-${if(forceOcr)"ocr" else "auto"}")
         val parsed=if(raw!=null)BookImporter.parse(raw,entry.name,progress,context,File(job,"assets"),forceOcr)
             else legacyReflow(text(entry),entry.title,entry.format)
         check(!Thread.currentThread().isInterrupted) {"已暂停，进度已保留"}
-        commit(id,entry.name,entry.folder,parsed,raw,entry)
+        val checked=checkedReflow(parsed,entry,job,window,checkProgress)
+        commit(id,entry.name,entry.folder,checked.book,raw,entry,checked.report.toString())
         job.deleteRecursively();return raw!=null
+    }
+    private fun checkedReflow(parsed:ParsedBook,entry:BookFile,job:File,window:ReflowWindow?=null,checkProgress:(Int)->Unit={}):ReflowGuard.Result {
+        val checked=ReflowGuard.run(parsed,qualityProfiles(entry,window),checkProgress)
+        File(job,"quality.json").writeText(checked.report.toString(2))
+        check(checked.report.getBoolean("passed")) {"排版复检未通过，原书保持不变"}
+        check(!Thread.currentThread().isInterrupted) {"已暂停，进度已保留"}
+        return checked
+    }
+    private fun qualityProfiles(entry:BookFile,window:ReflowWindow?):List<ReflowGuard.Profile> {
+        val metrics=context.resources.displayMetrics
+        val actual=window?:ReflowWindow((metrics.widthPixels/metrics.density-24f).coerceAtLeast(240f),(metrics.heightPixels/metrics.density-64f).coerceAtLeast(240f))
+        val state=reading(entry);val spacing=floatArrayOf(.40f,.67f,.95f)[state.getInt("spacing",1).coerceIn(0,2)];val columns=state.getInt("columns",0).coerceIn(0,2)
+        val face=when(preferences.getInt("face",0)){1->Typeface.create("sans-serif",Typeface.NORMAL);2->customTypeface()?:Typeface.create("serif",Typeface.NORMAL);else->Typeface.create("serif",Typeface.NORMAL)}
+        return (listOf("current" to actual,"phone" to ReflowWindow(360f,760f),"phone-landscape" to ReflowWindow(760f,360f),"pad" to ReflowWindow(1680f,1080f))).map {(name,area)->
+            val fonts=ReaderSizing(area.width,area.height).fontSizes
+            val size=fonts[state.getInt("font",1).coerceIn(fonts.indices)]
+            val font=android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,size,metrics)/metrics.density
+            ReflowGuard.Profile(name,area.width,area.height,font,spacing,columns,face)
+        }.distinctBy {listOf(it.width,it.height,it.font,it.spacing,it.columns)}
     }
     private fun legacyReflow(value:String,title:String,format:String):ParsedBook {
         val out=BookAssembly()
@@ -145,34 +183,31 @@ internal class BookFiles(private val context: Context) {
         }
         return out.finish(title,format)
     }
-    internal fun commit(id:String,name:String,folder:String,parsed:ParsedBook,raw:File?,existing:BookFile?=get(id)):BookFile {
+    internal fun commit(id:String,name:String,folder:String,parsed:ParsedBook,raw:File?,existing:BookFile?=get(id),quality:String?=null):BookFile {
         val stage=java.nio.file.Files.createTempDirectory(directory.toPath(),".$id-stage-").toFile()
         val target=File(directory,"$id-v2-${java.util.UUID.randomUUID()}");var committed=false
         val oldText=existing?.let {text(it)}
         try {
+            // Compute source-anchor changes before publishing the new index, while the old book is intact.
+            val readingState=if(existing!=null&&oldText!=parsed.text)remappedState(existing,checkNotNull(oldText),parsed.text) else null
             File(stage,"text.txt").writeText(parsed.text)
             File(stage,"structure.json").writeText(parsed.structure.json().toString())
+            quality?.let {File(stage,"quality.json").writeText(it)}
             raw?.copyTo(File(stage,"original"))
             parsed.images.forEach {(key,file)-> require(key.matches(Regex("[a-f0-9]{64}")));val dest=File(stage,"images/$key");dest.parentFile?.mkdirs();file.copyTo(dest)}
             check(stage.renameTo(target)) {"无法保存本地书籍"}
             val entry=BookFile(id,name,parsed.title,parsed.format,folder,parsed.structure.chapters.size,true,target.name)
             val at=entries.indexOfFirst {it.id==id};if(at>=0)entries[at]=entry else entries+=entry
             try {writeIndex();committed=true} catch(t:Throwable) {if(at>=0)entries[at]=checkNotNull(existing) else entries.remove(entry);throw t}
-            if(oldText!=null&&oldText!=parsed.text)remap(entry,oldText,parsed.text)
+            readingState?.let {(offset,bookmarks)->reading(entry).edit().putInt("offset",offset).putStringSet("bookmarks",bookmarks).commit()}
             bitmaps.clear();cachedBitmapBytes=0
             existing?.let {bundle(it)}?.takeIf {it!=target}?.deleteRecursively()
             return entry
         } finally {stage.deleteRecursively();if(!committed)target.deleteRecursively()}
     }
-    private fun remap(entry:BookFile,old:String,new:String) {
-        val saved=reading(entry);val normalized=StringBuilder();val positions=IntArray(new.length);var n=0
-        new.forEachIndexed {at,c->if(!c.isWhitespace()){positions[n++]=at;normalized.append(c)}}
-        fun map(value:Int):Int {
-            val at=value.coerceIn(0,old.lastIndex.coerceAtLeast(0));val needle=old.substring(at,minOf(at+120,old.length)).filterNot {it.isWhitespace()}.take(48)
-            val match=if(needle.length>=12)normalized.indexOf(needle) else -1
-            return (if(match>=0)positions[match] else (at.toLong()*new.length/old.length.coerceAtLeast(1)).toInt()).coerceIn(0,new.lastIndex.coerceAtLeast(0))
-        }
-        saved.edit().putInt("offset",map(saved.getInt("offset",0))).putStringSet("bookmarks",saved.getStringSet("bookmarks",emptySet()).orEmpty().mapNotNull {it.toIntOrNull()}.map {map(it).toString()}.toSet()).commit()
+    private fun remappedState(entry:BookFile,old:String,new:String):Pair<Int,Set<String>> {
+        val saved=reading(entry);val anchors=ReadingAnchorMap(old,new)
+        return anchors.map(saved.getInt("offset",0)) to saved.getStringSet("bookmarks",emptySet()).orEmpty().mapNotNull {it.toIntOrNull()}.map {anchors.map(it).toString()}.toSet()
     }
     companion object {
         fun hashBytes(bytes:ByteArray)=MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") {"%02x".format(it)}

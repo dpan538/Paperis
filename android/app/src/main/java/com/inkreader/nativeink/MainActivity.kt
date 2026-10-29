@@ -34,7 +34,7 @@ class MainActivity : Activity() {
         window.setDecorFitsSystemWindows(false)
         getSystemService(android.app.NotificationManager::class.java)?.apply {cancelAll();deleteNotificationChannel("library")}
         readerFeedback=ReaderFeedback(applicationContext) { feedbackDialog?.refresh() }
-        inkView = InkView(this, ::chooseFiles, ::chooseFont, ::checkUpdates, ::openExternal, ::openFeedback, ::reprocess, ::storage, ::originalPage, ::updateAction, ::attachOriginal, ::repairOpenedBook)
+        inkView = InkView(this, ::chooseFiles, ::chooseFont, ::checkUpdates, ::openExternal, ::openFeedback, ::reprocess, ::storage, ::originalPage, ::updateAction, ::attachOriginal, ::repairOpenedBook, ::fileAction)
         appUpdates=AppUpdates(applicationContext) { value ->
             inkView.updateStatus(value,appUpdates.candidate?.versionName.orEmpty())
             if(value.phase==UpdatePhase.ERROR)installOnReady=false
@@ -193,9 +193,10 @@ class MainActivity : Activity() {
     private fun startWork(job:org.json.JSONObject?=null) {
         if(LibraryWork.active)return
         job?.put("english",inkView.english)
+        inkView.currentViewport?.let {area->job?.put("window",ReflowWindow(area.width,area.height).json())}
         if(!visible){job?.let {LibraryWork.prepare(this,it)};return}
         val current=job?:runCatching {org.json.JSONObject(LibraryWork.journal(this).readText())}.getOrNull()
-        readingWork=current?.optString("kind")=="reflow"&&current.optString("id")==inkView.currentBookId
+        readingWork=!inkView.libraryOpen&&current?.optString("kind")=="reflow"&&current.optString("id")==inkView.currentBookId
         LibraryWork.start(this,job)
         applyScreenAwake()
         inkView.showFiles(inkView.text("正在准备…","Preparing…"),true)
@@ -205,6 +206,20 @@ class MainActivity : Activity() {
         inkView.saveReadingState()
         readingWork=true
         startWork(org.json.JSONObject().put("kind","reflow").put("id",inkView.currentBookId).put("ocr",forceOcr))
+    }
+    private fun fileAction(id:String,action:String) {
+        if(importing||inkView.files.get(id)==null)return
+        if(action=="reprocess") {
+            if(id!="sample")startWork(org.json.JSONObject().put("kind","reflow").put("id",id).put("ocr",false))
+        } else if(action=="delete") {
+            localTask=true;inkView.showFiles(inkView.text("正在删除…","Deleting…"),true)
+            imports.execute {
+                val result=runCatching {inkView.files.delete(id);LibraryWork.discardDeletedBook(applicationContext,id)}
+                runOnUiThread {if(!isDestroyed){localTask=false;inkView.showFiles();applyScreenAwake()
+                    result.onFailure {android.app.AlertDialog.Builder(this).setTitle(inkView.text("未能删除","Could not delete book")).setMessage(ReaderErrors.message(it.message,inkView.english)).setPositiveButton(android.R.string.ok,null).show()}
+                }}
+            }
+        }
     }
     private fun repairOpenedBook() {
         inkView.files.reload()

@@ -9,21 +9,22 @@ import android.graphics.Typeface
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import android.text.TextUtils
 import kotlin.math.ceil
 
-internal enum class MenuPage { ROOT, NAVIGATION, BOOKMARKS, LAYOUT, SCREEN, PRESETS, SETTINGS, IMPORT, REFLOW, STORAGE, UPDATE }
+internal enum class MenuPage { ROOT, NAVIGATION, BOOKMARKS, LAYOUT, SCREEN, PRESETS, SETTINGS, IMPORT, REFLOW, STORAGE, UPDATE, FILE_ACTIONS, FILE_DELETE }
 internal enum class MenuAction {
     BACK, NAVIGATION, BOOKMARKS, LAYOUT, SCREEN, FONT_DOWN, FONT_UP,
     SPACING, COLUMNS, OPTICAL, REFRESH, DRAFT_DOWN, DRAFT_UP, PERCENT, GO,
     CHAPTER, BOOKMARK_TOGGLE, BOOKMARK_GO, BOOKMARK_REMOVE, BOOKMARK_PREVIOUS, BOOKMARK_NEXT,
     FILES, IMPORT, IMPORT_FILES, IMPORT_FOLDER, FONT_FACE, FONT_IMPORT, PRESETS, PRESET,
     SETTINGS, LANGUAGE, CHECK_UPDATE, DOWNLOAD_UPDATE, INSTALL_UPDATE, CANCEL_UPDATE, FEEDBACK, NIGHT, DARK, LIGHT, WARMTH, CONTRAST, REFLOW, REPROCESS, OCR, ORIGINAL, ORIGINAL_FILE, STORAGE, BACKUP_FOLDER, BACKUP, RESTORE, RESUME, PAUSE,
-    REFRESH_MODE, KEEP_AWAKE, DIRECTION
+    REFRESH_MODE, KEEP_AWAKE, DIRECTION, FILE_REPROCESS, FILE_DELETE, FILE_DELETE_CONFIRM, FILE_CANCEL
 }
 internal data class MenuCommand(val action: MenuAction, val value: Int = 0)
 internal data class MenuControl(val text: String, val command: MenuCommand?, val selected: Boolean = false)
 internal data class MenuRow(val label: String, val command: MenuCommand? = null, val controls: List<MenuControl> = emptyList(), val controlsWidth: Float = 228f)
-internal data class MenuModel(val title: String, val back: Boolean, val rows: List<MenuRow>, val minRows: Int = 0, val scroll: Float = 0f)
+internal data class MenuModel(val title: String, val back: Boolean, val rows: List<MenuRow>, val minRows: Int = 0, val scroll: Float = 0f, val anchor:RectF?=null, val showHeader:Boolean=true, val showArrows:Boolean=true)
 
 /** Measured labels, wrapping control grids and touch regions share one layout. */
 internal class ReadingMenu(private val sp: (Float) -> Float = { it }) {
@@ -47,15 +48,15 @@ internal class ReadingMenu(private val sp: (Float) -> Float = { it }) {
     internal val headerHeight get() = header
     internal var minimumTouchSize = 48f; private set
 
-    private fun typeset(value: String, size: Float, width: Float, gray: Int = 45, center: Boolean = false): StaticLayout {
+    private fun typeset(value: String, size: Float, width: Float, gray: Int = 45, center: Boolean = false, maxLines:Int=Int.MAX_VALUE): StaticLayout {
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface=Typeface.create("sans-serif",Typeface.NORMAL);textSize=sp(size);color=Color.rgb(gray,gray,gray)
         }
         return StaticLayout.Builder.obtain(value,0,value.length,paint,width.toInt().coerceAtLeast(1))
-            .setIncludePad(false).setAlignment(if(center)Layout.Alignment.ALIGN_CENTER else Layout.Alignment.ALIGN_NORMAL).build()
+            .setIncludePad(false).setMaxLines(maxLines).setEllipsize(TextUtils.TruncateAt.END).setAlignment(if(center)Layout.Alignment.ALIGN_CENTER else Layout.Alignment.ALIGN_NORMAL).build()
     }
-    private fun text(value:String,size:Float,x:Float,y:Float,width:Float,gray:Int=45,center:Boolean=false):TextRegion {
-        val layout=typeset(value,size,width,gray,center)
+    private fun text(value:String,size:Float,x:Float,y:Float,width:Float,gray:Int=45,center:Boolean=false,maxLines:Int=Int.MAX_VALUE):TextRegion {
+        val layout=typeset(value,size,width,gray,center,maxLines)
         return TextRegion(value,RectF(x,y,x+width,y+layout.height),layout)
     }
     fun place(viewportWidth: Float, viewportHeight: Float, model: MenuModel) {
@@ -68,14 +69,14 @@ internal class ReadingMenu(private val sp: (Float) -> Float = { it }) {
         val gap=if(compact)8f else 12f
         val controlPad=if(compact)4f else 8f
         val side=(viewportWidth*.0493f).coerceIn(16f,84f)
-        val width=minOf(if(compact)288f else 416f,(viewportWidth-side*2).coerceAtLeast(1f))
-        val top=if(viewportHeight>=860f)110f else (viewportHeight*.08f).coerceAtLeast(12f)
+        val width=minOf(if(!model.showHeader)if(compact)196f else 240f else if(compact)288f else if(model.anchor!=null)320f else 416f,(viewportWidth-side*2).coerceAtLeast(1f))
+        val top=if(model.anchor!=null)12f else if(viewportHeight>=860f)110f else (viewportHeight*.08f).coerceAtLeast(12f)
         bounds.set(viewportWidth-side-width,top,viewportWidth-side,top)
         val titleX=bounds.left+if(model.back)if(compact)42f else 52f else labelInset
         val headingSize=if(compact)15f else 18f
-        heading=text(model.title,headingSize,titleX,top+if(compact)12f else 18f,bounds.right-titleX-labelInset,90)
-        header=maxOf(if(compact)44f else 58f,heading!!.layout.height+if(compact)24f else 32f)
-        backBounds=if(model.back)RectF(bounds.left+8f,top,bounds.left+40f,top+header) else null
+        heading=if(model.showHeader)text(model.title,headingSize,titleX,top+if(compact)12f else 18f,bounds.right-titleX-labelInset,90,maxLines=if(model.anchor!=null)2 else Int.MAX_VALUE) else null
+        header=heading?.let {maxOf(if(compact)44f else 58f,it.layout.height+if(compact)24f else 32f)}?:0f
+        backBounds=if(model.back&&model.showHeader)RectF(bounds.left+8f,top,bounds.left+40f,top+header) else null
         val labelSize=if(compact)15f else 21f
         var cursor=0f
         rows=model.rows.map { row ->
@@ -85,7 +86,7 @@ internal class ReadingMenu(private val sp: (Float) -> Float = { it }) {
             val rowHeight:Float
             if(row.controls.isEmpty()) {
                 val label=text(row.label,if(row.command==null)if(compact)12f else 17f else labelSize,
-                    bounds.left+labelInset,y+vertical,(width-if(row.command==null)labelInset*2 else if(compact)52f else 70f).coerceAtLeast(1f),if(row.command==null)110 else 45)
+                    bounds.left+labelInset,y+vertical,(width-if(row.command==null||!model.showArrows)labelInset*2 else if(compact)52f else 70f).coerceAtLeast(1f),if(row.command==null)110 else 45)
                 rowHeight=maxOf(unit,label.layout.height+vertical*2)
                 labels+=label.copy(bounds=RectF(label.bounds).apply {offset(0f,(rowHeight-label.layout.height)/2-vertical)})
                 if(row.command!=null) {
@@ -122,7 +123,7 @@ internal class ReadingMenu(private val sp: (Float) -> Float = { it }) {
                     if(control.selected)selected+=r
                 }
             }
-            val chevron=if(row.command!=null&&row.controls.isEmpty())RectF(bounds.right-if(compact)32f else 44f,y,bounds.right-if(compact)8f else 12f,y+rowHeight) else null
+            val chevron=if(model.showArrows&&row.command!=null&&row.controls.isEmpty())RectF(bounds.right-if(compact)32f else 44f,y,bounds.right-if(compact)8f else 12f,y+rowHeight) else null
             Row(RectF(bounds.left,y,bounds.right,y+rowHeight),labels,hits,selected,chevron).also {cursor+=rowHeight}
         }
         contentHeight=cursor
@@ -132,6 +133,11 @@ internal class ReadingMenu(private val sp: (Float) -> Float = { it }) {
         bounds.bottom=top+height
         maxScroll=(contentHeight-(height-header)).coerceAtLeast(0f)
         scroll=model.scroll.coerceIn(0f,maxScroll)
+        model.anchor?.let {anchor->
+            val dy=(anchor.centerY()-if(header>0f)header/2 else unit/2).coerceIn(12f,(viewportHeight-height-12f).coerceAtLeast(12f))-top
+            bounds.offset(0f,dy);heading?.bounds?.offset(0f,dy);backBounds?.offset(0f,dy)
+            rows.forEach {row->row.bounds.offset(0f,dy);row.labels.forEach {it.bounds.offset(0f,dy)};row.hits.forEach {it.bounds.offset(0f,dy)};row.selected.forEach {it.offset(0f,dy)};row.chevron?.offset(0f,dy)}
+        }
     }
     private fun drawText(c:Canvas,label:TextRegion) {
         c.save();c.translate(label.bounds.left,label.bounds.top);label.layout.draw(c);c.restore()
@@ -145,7 +151,7 @@ internal class ReadingMenu(private val sp: (Float) -> Float = { it }) {
     fun draw(c: Canvas, model: MenuModel) {
         c.drawRect(bounds,fill);c.drawRect(bounds,rule)
         heading?.let {drawText(c,it)};backBounds?.let {drawChevron(c,it,false)}
-        c.drawLine(bounds.left+20,bounds.top+header,bounds.right-20,bounds.top+header,rule)
+        if(header>0f)c.drawLine(bounds.left+20,bounds.top+header,bounds.right-20,bounds.top+header,rule)
         c.save();c.clipRect(bounds.left,bounds.top+header,bounds.right,bounds.bottom);c.translate(0f,-scroll)
         rows.forEachIndexed {i,row->
             row.labels.forEach {drawText(c,it)}

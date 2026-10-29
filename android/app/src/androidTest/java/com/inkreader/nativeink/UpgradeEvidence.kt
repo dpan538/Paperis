@@ -10,7 +10,7 @@ import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 
-/** Two phases straddle an actual adb replacement of the published preview by the stable APK. */
+/** Two phases straddle an actual replacement of the published 1.0.0 by 1.0.1. */
 internal class UpgradeEvidence(private val host:Instrumentation,private val prepare:Boolean) {
     fun run()=with(host) {
         val checks=JSONArray();var failure:String?=null
@@ -37,31 +37,31 @@ internal class UpgradeEvidence(private val host:Instrumentation,private val prep
             val cert=sha(info.signingInfo!!.apkContentsSigners.single().toByteArray())
             val library=BookFiles(targetContext);val marker=targetContext.getSharedPreferences("upgrade-evidence",0)
             if(prepare) {
-                verify("Preparation runs on the actual published preview.17",info.versionName=="0.1.0-preview.17"&&info.longVersionCode==17L)
+                verify("Preparation runs on the actual published 1.0.0",info.versionName=="1.0.0"&&info.longVersionCode==18L)
                 val file=File(targetContext.cacheDir,"Stable upgrade regression.txt")
                 file.writeText("第一章 保留书库\n\n"+(1..30).joinToString("\n\n"){"This original file, reading position and bookmarks survive the application upgrade. 原文件、字号与书签在覆盖安装后保留。 $it"})
                 library.import(android.net.Uri.fromFile(file));val book=library.list().first {it.name==file.name}
                 library.preferences.edit().putString("lastBook",book.id).putInt("preset",2).putInt("warmth",3).putInt("contrast",0)
-                    .remove("refreshMode").remove("readingAwake").remove("orientationAxis").commit()
+                    .putInt("refreshMode",2).putBoolean("readingAwake",true).putInt("orientationAxis",1).commit()
                 library.reading(book).edit().putInt("offset",77).putInt("font",2).putInt("spacing",0).putStringSet("bookmarks",setOf("123")).commit()
-                marker.edit().putString("id",book.id).putString("original",sha(library.original(book)!!.readBytes())).putString("text",sha(library.text(book).toByteArray())).putString("cert",cert).putString("icon",iconMetrics("preview17-icon.png").toString()).commit()
-                verify("Preview stores an original file, reading preferences and bookmark",library.original(book)!!.isFile)
+                marker.edit().putString("id",book.id).putString("original",sha(library.original(book)!!.readBytes())).putString("text",sha(library.text(book).toByteArray())).putString("cert",cert).putString("icon",iconMetrics("1.0.0-icon.png").toString()).commit()
+                verify("Previous release stores an original file, reading preferences and bookmark",library.original(book)!!.isFile)
             }else {
-                verify("Stable APK is 1.0.0 with a higher Android version code",info.versionName=="1.0.0"&&info.longVersionCode==18L)
+                verify("Stable APK is 1.0.1 with a higher Android version code",info.versionName=="1.0.1"&&info.longVersionCode==19L)
                 verify("Stable APK is not debuggable",info.applicationInfo!!.flags and ApplicationInfo.FLAG_DEBUGGABLE==0)
-                verify("Stable and preview use exactly the same signing certificate",marker.getString("cert",null)==cert)
+                verify("Patch and previous release use exactly the same signing certificate",marker.getString("cert",null)==cert)
                 val book=checkNotNull(library.get(marker.getString("id","").orEmpty()))
                 verify("Original bytes survive actual replacement",sha(library.original(book)!!.readBytes())==marker.getString("original",null))
                 verify("Imported reading text survives actual replacement",sha(library.text(book).toByteArray())==marker.getString("text",null))
                 val saved=library.reading(book)
                 verify("Source position, font, spacing and bookmarks survive",saved.getInt("offset",-1)==77&&saved.getInt("font",-1)==2&&saved.getInt("spacing",-1)==0&&saved.getStringSet("bookmarks",emptySet())==setOf("123"))
                 verify("Selected paper, tone and contrast survive",library.preferences.getInt("preset",-1)==2&&library.preferences.getInt("warmth",-1)==3&&library.preferences.getInt("contrast",-1)==0)
-                verify("New screen options adopt safe defaults",library.preferences.getInt("refreshMode",0)==0&&!library.preferences.getBoolean("readingAwake",false)&&library.preferences.getInt("orientationAxis",0)==0)
+                verify("Existing screen behavior preferences survive",library.preferences.getInt("refreshMode",0)==2&&library.preferences.getBoolean("readingAwake",false)&&library.preferences.getInt("orientationAxis",0)==1)
                 val old=JSONObject(marker.getString("icon","{}")!!);val icon=iconMetrics("stable-icon.png")
-                verify("Launcher foreground is smaller with the same optical centering",listOf("width","height").all {icon.getDouble(it)/old.getDouble(it) in .82.. .93}&&
+                verify("Launcher foreground keeps its accepted size and centering",listOf("width","height").all {icon.getInt(it)==old.getInt(it)}&&
                     kotlin.math.abs(icon.getDouble("cx")-80)<1.5&&kotlin.math.abs(icon.getDouble("cy")-80)<1.5&&
                     kotlin.math.abs(icon.getDouble("cx")-old.getDouble("cx"))<1&&kotlin.math.abs(icon.getDouble("cy")-old.getDouble("cy"))<1)
-                File(folder,"icon-metrics.json").writeText(JSONObject().put("preview17",old).put("stable",icon).toString(2))
+                File(folder,"icon-metrics.json").writeText(JSONObject().put("1.0.0",old).put("1.0.1",icon).toString(2))
             }
         }catch(t:Throwable){failure=t.stackTraceToString()}
         val name=if(prepare)"upgrade-prepare-report.json" else "upgrade-report.json"

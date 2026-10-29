@@ -19,7 +19,7 @@ import kotlin.math.min
 
 class InkView @JvmOverloads constructor(context: Context, private val importFiles: (Boolean) -> Unit = {}, private val importFont: () -> Unit = {},
     private val checkUpdate: () -> Unit = {}, private val external: (String) -> Unit = {},
-    private val feedback: () -> Unit = {}, private val reprocess:(Boolean)->Unit={}, private val storage:(Int)->Unit={}, private val originalPage:()->Unit={}, private val updateAction:(String)->Unit={}, private val originalFile:()->Unit={}, private val bookOpened:()->Unit={}) : View(context) {
+    private val feedback: () -> Unit = {}, private val reprocess:(Boolean)->Unit={}, private val storage:(Int)->Unit={}, private val originalPage:()->Unit={}, private val updateAction:(String)->Unit={}, private val originalFile:()->Unit={}, private val bookOpened:()->Unit={}, private val fileAction:(String,String)->Unit={_,_->}) : View(context) {
     internal data class Frame(val page: Int, val fontStep: Int, val tools: Boolean, val optical: Boolean = true,
         val spacingStep: Int = 1, val columnMode: Int = 0, val menu: MenuPage = MenuPage.ROOT,
         val draftPage: Int = 0, val bookmarks: List<Int> = emptyList(), val bookmarkListPage: Int = 0,
@@ -27,7 +27,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         val shelfFolder: String = "", val shelfPage: Int = 0, val notice: String = "", val busy: Boolean = false,
         val english: Boolean = false, val night: Boolean = false, val dark: Boolean = false, val lightStep: Int = 1,
         val warmth:Int=2,val brightnessSet:Boolean=false,val contrast:Int=1, val menuScroll: Float = 0f, val update:UpdateUi=UpdateUi(),val updateVersion:String="",
-        val refreshMode:Int=0,val readingAwake:Boolean=false,val directionLocked:Boolean=false,val directionAvailable:Boolean=true) {
+        val refreshMode:Int=0,val readingAwake:Boolean=false,val directionLocked:Boolean=false,val directionAvailable:Boolean=true,val fileTarget:String="") {
         val appearance get() = InkAppearance(preset,night,dark,lightStep,warmth,contrast,optical)
     }
     internal val files = BookFiles(context)
@@ -41,6 +41,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     private var shelfFiles = files.list()
     val libraryOpen get() = logical.library
     internal val currentBookId get() = entry.id
+    internal val selectedFileId get()=logical.fileTarget
     internal val currentFace get() = logical.face
     internal val currentPreset get() = logical.preset
     internal val importBusy get() = logical.busy
@@ -231,16 +232,32 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuControl(text, action?.let { cmd(it, value) }, selected)
         val pageRange = bookLayout.pages[frame.page]
         val currentMarked = frame.bookmarks.any { it in pageRange.first().start until pageRange.last().end }
+        val hasBook=files.get(entry.id)!=null
+        fun bookItem(label:String,action:MenuAction)=if(hasBook)item(label,action) else MenuRow(label)
         val rootRows=if(LibraryWork.active)9 else 8
         val model=when (frame.menu) {
+            MenuPage.FILE_ACTIONS, MenuPage.FILE_DELETE -> {
+                val selected=shelfFiles.firstOrNull {it.id==frame.fileTarget}
+                val anchor=shelf.moreBounds(frame.fileTarget)?:RectF(vw-64f,48f,vw-16f,96f)
+                MenuModel("",false,buildList {
+                    if(frame.menu==MenuPage.FILE_DELETE) {
+                        add(MenuRow(t("删除本机副本与阅读记录？源文件和独立备份保留。","Delete this local copy and reading history? Source files and folder backups stay intact.")))
+                        add(item(t("取消","Cancel"),MenuAction.FILE_CANCEL))
+                        if(selected!=null)add(item(t("确认删除","Delete book"),MenuAction.FILE_DELETE_CONFIRM))
+                    } else if(selected!=null) {
+                        add(if(selected.id!="sample")item(t("重新排版","Reprocess"),MenuAction.FILE_REPROCESS) else MenuRow(t("重新排版","Reprocess")))
+                        add(item(t("删除","Delete"),MenuAction.FILE_DELETE))
+                    }
+                },anchor=anchor,showHeader=false,showArrows=false)
+            }
             MenuPage.ROOT -> MenuModel(t("阅读菜单", "Reading menu"), false, buildList {
-                add(item(if(frame.library)t("返回阅读", "Resume reading")else t("文件", "Files"),MenuAction.FILES))
-                add(item(t("目录与进度", "Contents & progress"),MenuAction.NAVIGATION))
+                add(if(frame.library)bookItem(t("返回阅读", "Resume reading"),MenuAction.FILES) else item(t("文件", "Files"),MenuAction.FILES))
+                add(bookItem(t("目录与进度", "Contents & progress"),MenuAction.NAVIGATION))
                 add(item(t("＋ 导入书籍", "+ Import books"),MenuAction.IMPORT))
-                add(item(t("阅读排版", "Text & layout"),MenuAction.LAYOUT))
+                add(bookItem(t("阅读排版", "Text & layout"),MenuAction.LAYOUT))
                 add(item(t("阅读预设", "Reading presets"),MenuAction.PRESETS))
                 add(item(t("屏幕与刷新", "Screen & refresh"),MenuAction.SCREEN))
-                add(item(t("书签 · ${frame.bookmarks.size}", "Bookmarks · ${frame.bookmarks.size}"),MenuAction.BOOKMARKS))
+                add(bookItem(t("书签 · ${frame.bookmarks.size}", "Bookmarks · ${frame.bookmarks.size}"),MenuAction.BOOKMARKS))
                 add(item(t("设置", "Settings"),MenuAction.SETTINGS))
                 if(LibraryWork.active)add(item(t("暂停整理并保留进度", "Pause and keep progress"),MenuAction.PAUSE))
             },rootRows)
@@ -379,10 +396,18 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
 
     internal fun menuCommand(command: MenuCommand) {
         when (command.action) {
+            MenuAction.FILE_REPROCESS -> if(!logical.busy&&files.get(logical.fileTarget)?.id?.let {it!="sample"}==true) {
+                val id=logical.fileTarget;request(logical.copy(tools=false));fileAction(id,"reprocess")
+            }
+            MenuAction.FILE_DELETE -> if(!logical.busy)openMenu(MenuPage.FILE_DELETE)
+            MenuAction.FILE_DELETE_CONFIRM -> if(!logical.busy&&files.get(logical.fileTarget)!=null) {
+                val id=logical.fileTarget;request(logical.copy(tools=false));fileAction(id,"delete")
+            }
+            MenuAction.FILE_CANCEL -> request(logical.copy(tools=false,fileTarget=""))
             MenuAction.REFRESH_MODE -> {request(logical.copy(refreshMode=command.value.coerceIn(0,2)));savePreferences()}
             MenuAction.KEEP_AWAKE -> {request(logical.copy(readingAwake=command.value==1));savePreferences()}
             MenuAction.DIRECTION -> (context as? MainActivity)?.setReadingDirection(command.value==1)
-            MenuAction.FILES -> if(logical.library) request(logical.copy(library=false,tools=false)) else showFiles()
+            MenuAction.FILES -> if(logical.library) {if(files.get(entry.id)!=null)request(logical.copy(library=false,tools=false))} else showFiles()
             MenuAction.PAUSE -> LibraryWork.cancel(context)
             MenuAction.REFLOW -> openMenu(MenuPage.REFLOW)
             MenuAction.REPROCESS -> reprocess(false)
@@ -442,7 +467,11 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     internal fun openMenu(page: MenuPage) { request(logical.copy(tools = true, menu = page, menuScroll=0f, draftPage = logical.page, bookmarkListPage = 0)) }
     fun backFromTools(): Boolean {
         if (!logical.tools) return false
-        if (logical.menu == MenuPage.ROOT) toggleTools() else openMenu(MenuPage.ROOT)
+        when(logical.menu) {
+            MenuPage.ROOT, MenuPage.FILE_ACTIONS -> toggleTools()
+            MenuPage.FILE_DELETE -> openMenu(MenuPage.FILE_ACTIONS)
+            else -> openMenu(MenuPage.ROOT)
+        }
         return true
     }
     internal fun jumpToPage(page: Int) {
@@ -472,7 +501,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         savePreferences()
     }
     private fun savePreferences() {
-        preferences.edit().putInt("offset", savedOffset).putInt("font", logical.fontStep)
+        if(files.get(entry.id)!=null)preferences.edit().putInt("offset", savedOffset).putInt("font", logical.fontStep)
             .putInt("spacing", logical.spacingStep).putInt("columns", logical.columnMode)
             .putBoolean("optical", logical.optical).apply()
         files.preferences.edit().putInt("face",logical.face).putInt("preset",logical.preset)
@@ -600,15 +629,27 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
 
     internal fun showFiles(notice: String = "", busy: Boolean = false) {
         if(!logical.library) savePreferences()
+        var rebuilt=false
         if(!busy) {
             files.reload();shelfFiles=files.list()
             val updated=files.get(entry.id)
-            if(updated!=null&&updated!=entry) {
+            if(updated==null) {
+                entry=shelfFiles.firstOrNull()?:files.demo;preferences=files.reading(entry)
+                book=files.text(entry);structure=files.structure(entry,book);savedOffset=preferences.getInt("offset",0);layouts.clear()
+                logical=logical.copy(fontStep=preferences.getInt("font",logical.fontStep).coerceIn(fonts.indices),
+                    spacingStep=preferences.getInt("spacing",logical.spacingStep).coerceIn(spacing.indices),columnMode=preferences.getInt("columns",logical.columnMode).coerceIn(0,2),
+                    bookmarks=preferences.getStringSet("bookmarks",emptySet()).orEmpty().mapNotNull {it.toIntOrNull()}.sorted())
+                logical=logical.copy(page=layout(logical).pageForOffset(savedOffset))
+                rebuilt=true
+            } else if(updated!=entry) {
                 entry=updated;book=files.text(updated);structure=files.structure(updated,book);savedOffset=preferences.getInt("offset",0);layouts.clear()
                 logical=logical.copy(page=layout(logical).pageForOffset(savedOffset))
+                rebuilt=true
             }
         }
-        request(logical.copy(library=true,tools=busy&&logical.tools,notice=notice,busy=busy))
+        val last=((shelf.items(shelfFiles,logical.shelfFolder).size-1)/shelf.pageSize(vw,vh,logical.english)).coerceAtLeast(0)
+        val next=logical.copy(library=true,tools=busy&&logical.tools,notice=notice,busy=busy,shelfPage=logical.shelfPage.coerceAtMost(last),fileTarget="")
+        if(rebuilt){logical=next;displayRebuiltPage()}else request(next)
     }
     private fun shelfPage(direction: Int) {
         val last=((shelf.items(shelfFiles,logical.shelfFolder).size-1)/shelf.pageSize(vw,vh,logical.english)).coerceAtLeast(0)
@@ -622,6 +663,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             "up" -> request(logical.copy(shelfFolder=logical.shelfFolder.substringBeforeLast('/',""),shelfPage=0))
             "previous" -> shelfPage(-1)
             "next" -> shelfPage(1)
+            "more" -> if(files.get(command.id)!=null)request(logical.copy(tools=true,menu=MenuPage.FILE_ACTIONS,menuScroll=0f,fileTarget=command.id))
             "book" -> files.get(command.id)?.let { file -> runCatching { openBook(file,files.text(file)) }.onFailure { showFiles(ReaderErrors.message(it.message,logical.english)) } }
         }
     }
@@ -696,11 +738,27 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     override fun onDetachedFromWindow() { pause(); super.onDetachedFromWindow() }
 
     private fun menuAccessibilityActions(): List<Pair<String, MenuCommand>> = if (!logical.tools) emptyList() else buildList {
-        if (logical.menu != MenuPage.ROOT) add(text("返回阅读菜单","Back to reading menu") to MenuCommand(MenuAction.BACK))
+        if (logical.menu != MenuPage.ROOT) add(when(logical.menu) {
+            MenuPage.FILE_ACTIONS -> text("返回文件","Back to Files")
+            MenuPage.FILE_DELETE -> text("返回书籍操作","Back to book actions")
+            else -> text("返回阅读菜单","Back to reading menu")
+        } to MenuCommand(MenuAction.BACK))
         menuModel(logical).rows.forEach { row ->
             row.command?.let { add(row.label to it) }
             row.controls.forEach { control -> control.command?.let { add("${row.label} ${control.text}" to it) } }
         }
+    }
+    private fun shelfAccessibilityActions():List<Pair<String,ShelfCommand>> = if(!logical.library||logical.tools||logical.busy)emptyList() else shelf.hitRegions.map {(_,command)->
+        val title=shelfFiles.firstOrNull {it.id==command.id}?.title?:command.id
+        (when(command.action) {
+            "more" -> text("书籍操作：","Book actions: ")+title
+            "book" -> text("阅读：","Read: ")+title
+            "folder" -> text("文件夹：","Folder: ")+title
+            "import" -> text("导入文件","Import files")
+            "up" -> text("上级文件夹","Parent folder")
+            "previous" -> text("上一页文件","Previous files")
+            else -> text("下一页文件","Next files")
+        }) to command
     }
 
     override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
@@ -723,10 +781,12 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         menuAccessibilityActions().forEachIndexed { index, action ->
             info.addAction(AccessibilityNodeInfo.AccessibilityAction(ACTION_MENU_BASE + index, action.first))
         }
+        shelfAccessibilityActions().forEachIndexed {index,action->info.addAction(AccessibilityNodeInfo.AccessibilityAction(ACTION_SHELF_BASE+index,action.first))}
     }
 
     override fun performAccessibilityAction(action: Int, arguments: Bundle?): Boolean {
         menuAccessibilityActions().getOrNull(action - ACTION_MENU_BASE)?.let { menuCommand(it.second); return true }
+        shelfAccessibilityActions().getOrNull(action - ACTION_SHELF_BASE)?.let {shelfCommand(it.second);return true}
         when (action) {
             AccessibilityNodeInfo.ACTION_SCROLL_FORWARD -> turnPage(1)
             AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD -> turnPage(-1)
@@ -747,5 +807,6 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         const val ACTION_SMALLER = 0x01000004
         const val ACTION_OPTICAL = 0x01000005
         private const val ACTION_MENU_BASE = 0x01000100
+        private const val ACTION_SHELF_BASE = 0x02000000
     }
 }

@@ -259,7 +259,7 @@ internal class ResponsiveEvidence(private val host:Instrumentation,private val a
                 verify("${p.name}: the visible ellipsis opens the reading menu",ui {activity.inkView.toolsOpen&&activity.inkView.menuPage==MenuPage.ROOT})
                 val (root,rootViewport)=ui {RectF(activity.inkView.currentMenuLayout.bounds) to activity.inkView.currentViewport}
                 if(index in setOf(0,8))capture("$index-root-menu").recycle()
-                touch(MenuAction.MORE);touch(MenuAction.SETTINGS)
+                touch(MenuAction.SETTINGS)
                 val (settings,sameWindowRoot)=ui {
                     val v=activity.inkView;val area=v.currentViewport!!
                     val settings=v.menuPage to RectF(v.currentMenuLayout.bounds)

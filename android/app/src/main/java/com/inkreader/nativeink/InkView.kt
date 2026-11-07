@@ -170,8 +170,11 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     }
     private fun updateViewport() {
         if(width<=0 || height<=0) return
+        // Focus mode is edge-to-edge: no decorative 12dp surround, only real cutout/system
+        // safe insets remain so text never enters a camera hole.
+        val surround=if(logical.focus) 0 else (12*resources.displayMetrics.density).toInt()
         val next=ReaderViewport.calculate(width,height,resources.displayMetrics.density,resources.configuration.fontScale,
-            safeInsets.left+(12*resources.displayMetrics.density).toInt(),safeInsets.top+(12*resources.displayMetrics.density).toInt(),safeInsets.right+(12*resources.displayMetrics.density).toInt(),safeInsets.bottom+(12*resources.displayMetrics.density).toInt())
+            safeInsets.left+surround,safeInsets.top+surround,safeInsets.right+surround,safeInsets.bottom+surround)
         if(next==viewport) return
         viewport=next;scale=next.density;vw=next.width;vh=next.height
         layouts.clear()
@@ -232,9 +235,12 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             }
         }
         // Keep the page-turn affordances inboard of the outer folio so they never overlap it.
-        val chevronInset = uiSp(46f)
-        drawChevron(c, bookLayout.chromeMargin + chevronInset, y - 7, false, frame.page > 0)
-        drawChevron(c, vw - bookLayout.chromeMargin - chevronInset, y - 7, true, frame.page < bookLayout.pages.lastIndex)
+        // Focus mode removes every chrome mark, including these arrows.
+        if(!frame.focus) {
+            val chevronInset = uiSp(46f)
+            drawChevron(c, bookLayout.chromeMargin + chevronInset, y - 7, false, frame.page > 0)
+            drawChevron(c, vw - bookLayout.chromeMargin - chevronInset, y - 7, true, frame.page < bookLayout.pages.lastIndex)
+        }
         if (frame.tools) drawTools(c, frame)
         return bitmap
     }
@@ -324,7 +330,10 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 add(MenuRow(t("排版", "Layout"),cmd(MenuAction.LAYOUT),listOf(
                     control("A−",if(frame.fontStep>0)MenuAction.FONT_DOWN else null),control(fonts[frame.fontStep].toInt().toString(),null),control("A+",if(frame.fontStep<fonts.lastIndex)MenuAction.FONT_UP else null))))
                 add(MenuRow(t("纸张", "Paper"),controls=listOf(t("白瓷","Porcelain"),t("护眼","Gentle"),t("类纸","Paper")).mapIndexed {i,name->control(name,MenuAction.PRESET,i,frame.preset==i)}))
-                add(MenuRow(t("夜间", "Night"),controls=listOf(control(if(frame.night)t("开启","On")else t("关闭","Off"),MenuAction.NIGHT))))
+                add(MenuRow(t("夜间模式", "Night"),controls=listOf(control(if(frame.night)t("开启","On")else t("关闭","Off"),MenuAction.NIGHT))))
+                add(MenuRow(t("深色模式", "Dark"),controls=listOf(control(if(frame.dark)t("开启","On")else t("关闭","Off"),MenuAction.DARK))))
+                add(MenuRow(t("专注模式", "Focus"),controls=listOf(control(if(frame.focus)t("开启","On")else t("关闭","Off"),MenuAction.FOCUS))))
+                add(item(t("设置", "Settings"),MenuAction.SETTINGS))
                 add(item(t("更多", "More"),MenuAction.MORE))
             },5,showClose=true)
             MenuPage.DISPLAY -> MenuModel(t("显示 · 纸与光", "Display · paper & light"),true,surfaceRows()+screenRows())
@@ -332,18 +341,14 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 add(item(t("文件库", "Library"),MenuAction.FILES))
                 add(item(t("＋ 导入书籍", "+ Import books"),MenuAction.IMPORT))
                 add(bookItem(t("书签 ${frame.bookmarks.size}", "Bookmarks ${frame.bookmarks.size}"),MenuAction.BOOKMARKS))
-                add(MenuRow(t("深色模式","Dark mode"),controls=listOf(control(if(frame.dark)t("开启","On")else t("关闭","Off"),MenuAction.DARK))))
                 add(item(t("保存与备份", "Storage & backup"),MenuAction.STORAGE))
-                add(item(t("设置", "Settings"),MenuAction.SETTINGS))
-                add(item(t("检查更新", "Check for updates"),MenuAction.CHECK_UPDATE))
                 add(item(t("提交反馈", "Send feedback"),MenuAction.FEEDBACK))
-                add(MenuRow(t("专注模式","Focus mode"),controls=listOf(control(if(frame.focus)t("开启","On")else t("关闭","Off"),MenuAction.FOCUS))))
                 if(LibraryWork.active)add(item(t("暂停整理并保留进度", "Pause and keep progress"),MenuAction.PAUSE))
                 add(MenuRow("Paperis ${BuildConfig.VERSION_NAME}"))
             })
             MenuPage.SETTINGS -> MenuModel(t("设置", "Settings"),true,buildList {
                 add(MenuRow(t("语言", "Language"),controls=listOf(control("中文",MenuAction.LANGUAGE,0,!frame.english),control("English",MenuAction.LANGUAGE,1,frame.english))))
-                add(item(t("拉取更新", "Check for updates"),MenuAction.CHECK_UPDATE))
+                add(item(t("检查更新", "Check for updates"),MenuAction.CHECK_UPDATE))
                 add(item(t("提交反馈", "Send feedback"),MenuAction.FEEDBACK))
                 add(item(t("保存与备份", "Storage & backup"),MenuAction.STORAGE))
                 if(LibraryWork.pending(context))add(item(t("继续上次整理", "Resume unfinished work"),MenuAction.RESUME))
@@ -593,6 +598,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         val next=!logical.focus
         files.preferences.edit().putBoolean("focus",next).apply()
         request(logical.copy(focus=next))
+        updateViewport()
         (context as? MainActivity)?.applyFocus(next)
     }
     internal fun toggleAmbient() {

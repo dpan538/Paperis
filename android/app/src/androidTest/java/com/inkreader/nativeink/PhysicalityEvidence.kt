@@ -136,7 +136,14 @@ internal class PhysicalityEvidence(private val host: Instrumentation) {
             // Focus mode: paper only, system status bar hidden; still able to return.
             ui { current().inkView.toggleFocus() }; settle()
             verify("Focus mode shows only the page", ui { current().inkView.focusMode } && !ui { current().window.decorView.rootWindowInsets.isVisible(android.view.WindowInsets.Type.statusBars()) })
-            screenshot("focus-mode")
+            val focus=screenshot("focus-mode")
+            val focusPixels=IntArray(focus.width*focus.height);focus.getPixels(focusPixels,0,focus.width,0,0,focus.width,focus.height)
+            val focusSamples=listOf(0 to 0,focus.width-90 to 0,0 to focus.height-90,focus.width-90 to focus.height-90,focus.width/2-45 to focus.height/2-45).map {(x,y)->var sum=0.0;for(dy in 0 until 84 step 4)for(dx in 0 until 84 step 4){val c=focusPixels[(y+dy)*focus.width+x+dx];sum+=.2126*(c shr 16 and 255)+.7152*(c shr 8 and 255)+.0722*(c and 255)};sum/(21.0*21.0)}
+            verify("Focus paper is uniform to all four current viewport corners",focusSamples.max()-focusSamples.min()<1.2)
+            val topDark=(0 until focus.height/16).flatMap {y->(0 until focus.width step 16).map {x->focusPixels[y*focus.width+x] and 255}}.minOrNull()?:255
+            val bottomDark=(focus.height*15/16 until focus.height).flatMap {y->(0 until focus.width step 16).map {x->focusPixels[y*focus.width+x] and 255}}.minOrNull()?:255
+            verify("Focus removes top status/header and bottom footer chrome",topDark>150&&bottomDark>150)
+            focus.recycle()
             ui { current().inkView.toggleFocus() }; settle()
             verify("Leaving focus restores the reading chrome", !ui { current().inkView.focusMode } && ui { current().window.decorView.rootWindowInsets.isVisible(android.view.WindowInsets.Type.statusBars()) })
 

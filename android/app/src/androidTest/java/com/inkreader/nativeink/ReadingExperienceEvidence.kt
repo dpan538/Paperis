@@ -72,7 +72,7 @@ internal class ReadingExperienceEvidence(private val instrumentation: Instrument
             waitFor("picker cancelled") { uiAutomation.rootInActiveWindow?.packageName?.toString()==targetContext.packageName };settle()
             ui { activity.inkView.openMenu(MenuPage.ROOT) };settle()
             val root=ui { activity.inkView.menuBounds }
-            click("更多");click("设置")
+            click("设置")
             verify("Visible Settings row opens its own panel",ui { activity.inkView.menuPage==MenuPage.SETTINGS })
             verify("Settings uses the shared ink-panel width and side",root.width()==ui {activity.inkView.menuBounds.width()}&&kotlin.math.abs(root.left-ui {activity.inkView.menuBounds.left})<.5f)
             capture("03-settings-zh").recycle()
@@ -143,7 +143,7 @@ internal class ReadingExperienceEvidence(private val instrumentation: Instrument
             verify("An update network failure leaves settings usable with retry",ui { activity.inkView.toolsOpen && activity.inkView.menuPage==MenuPage.UPDATE })
             ui {activity.inkView.openMenu(MenuPage.SETTINGS)};settle()
             click("Language 中文");click("返回阅读菜单")
-            click("夜间 关闭")
+            click("夜间模式 关闭")
             ui { activity.inkView.toggleTools() };settle()
             val night=capture("05-night-frontlight")
             val edge=(0 until 23).map { night.getPixel(142+it*142,2250) and 255 }

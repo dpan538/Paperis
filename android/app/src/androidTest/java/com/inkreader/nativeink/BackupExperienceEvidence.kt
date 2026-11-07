@@ -58,7 +58,7 @@ internal class BackupExperienceEvidence(private val host:Instrumentation) {
             command("重新整理段落与目录")
             waitFor("manual reprocess"){!LibraryWork.active};settle()
             verify("Manual reprocessing resumes reading without launching a file picker",ui {!activity.inkView.libraryOpen&&activity.inkView.files.get(file.id)?.bundle!=file.bundle}&&uiAutomation.rootInActiveWindow?.packageName?.toString()==targetContext.packageName)
-            ui {activity.inkView.performAccessibilityAction(InkView.ACTION_TOOLS,null)};settle();command("更多");command("设置");command("保存与备份");capture(out,"02-storage-menu.png")
+            ui {activity.inkView.performAccessibilityAction(InkView.ACTION_TOOLS,null)};settle();command("设置");command("保存与备份");capture(out,"02-storage-menu.png")
             val existingTree=LibraryBackup(targetContext,activity.inkView.files).tree
             val backupStarted=System.currentTimeMillis()
             command("选择本地备份文件夹")

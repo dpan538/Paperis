@@ -248,29 +248,11 @@ internal class InkMaterial {
                 surfaceGrain *= mix(1.0,0.86,dark);
                 float paper = paperBase+illumination+reflection+surfaceGrain;
 
-                // Shallow laminate depth stays at the perimeter, outside the uniform reading field.
-                float inset = 2.2*scale;
-                float left = p.x-surfaceBounds.x-inset;
-                float top = p.y-surfaceBounds.y-inset;
-                float right = surfaceBounds.z-inset-p.x;
-                float bottom = surfaceBounds.w-inset-p.y;
-                float shadow = (0.012+max(-keyLight.y,0.0)*0.008)*exp(-max(top,0.0)/(7.5*scale))
-                    +(0.010+max(-keyLight.x,0.0)*0.006)*exp(-max(left,0.0)/(5.5*scale))
-                    +(0.004+max(keyLight.y,0.0)*0.005)*exp(-max(bottom,0.0)/(3.2*scale))
-                    +(0.004+max(keyLight.x,0.0)*0.005)*exp(-max(right,0.0)/(3.2*scale));
-                paper -= shadow*mix(1.0,0.22,dark);
-                float distance = windowDistance(p,inset,2.6*scale);
-                float frontEdge = windowDistance(p,0.5*scale,1.2*scale);
-                float outerSurface = mix(0.951,0.115,dark)+illumination+surfaceGrain;
-                float laminate = mix(0.931,0.145,dark)+illumination+surfaceGrain;
-                float rim = mix(outerSurface,laminate,1.0-smoothstep(-0.65*scale,0.65*scale,frontEdge));
-                rim += 0.012*exp(-abs(frontEdge+0.45*scale)/(0.75*scale))
-                    -0.012*exp(-max(-frontEdge,0.0)/(1.8*scale))
-                    -mix(0.035,0.015,dark)*exp(-abs(distance)/(0.6*scale));
-                paper += 0.018*exp(-abs(distance+1.2*scale)/(0.55*scale));
-                float window = 1.0-smoothstep(-0.7*scale,0.7*scale,distance);
-                paper = mix(rim,paper,window);
-                float tone = clamp(mix(paper,pigment,quantized*window),0.0,1.0);
+                // No simulated bezel/laminate is painted on the reading surface. The paper and
+                // its tooth continue uniformly to every edge; this removes corner grey casts and
+                // keeps the outermost material at the same precision as the centre.
+                float window = 1.0;
+                float tone = clamp(mix(paper,pigment,quantized),0.0,1.0);
 
                 // A zero-luminance direction in linear sRGB changes warmth without brightness.
                 // One gamut bound for the whole surface prevents local channel clipping/patches.

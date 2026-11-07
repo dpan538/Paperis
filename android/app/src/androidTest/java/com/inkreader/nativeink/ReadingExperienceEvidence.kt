@@ -85,13 +85,13 @@ internal class ReadingExperienceEvidence(private val instrumentation: Instrument
             activity.appUpdates.testDownload={_,_->java.io.ByteArrayInputStream(ByteArray(100))}
             click("Check for updates")
             waitFor("update available") { ui { activity.inkView.updateState==3 } };settle()
-            verify("Manual update callback exposes a real download action",ui { activity.inkView.createAccessibilityNodeInfo().actionList.any { it.label?.toString()=="Download update" } })
+            verify("Manual update callback exposes a real download action",ui { activity.inkView.createAccessibilityNodeInfo().actionList.any { it.label?.toString() in setOf("Download update","Download stable update","Download beta update") } })
             var external:Intent?=null
             val monitor=object:Instrumentation.ActivityMonitor() {
                 override fun onStartActivity(intent:Intent):Instrumentation.ActivityResult? { external=intent;return Instrumentation.ActivityResult(Activity.RESULT_CANCELED,null) }
             }
             addMonitor(monitor)
-            click("Download update")
+            click("Download stable update")
             waitFor("invalid APK rejected") {ui {activity.inkView.updateUi.phase==UpdatePhase.ERROR}}
             verify("APK download stays in the app and rejects a corrupt package",external==null&&ui {activity.inkView.menuPage==MenuPage.UPDATE})
             ui {activity.inkView.openMenu(MenuPage.SETTINGS)};settle()
@@ -142,8 +142,8 @@ internal class ReadingExperienceEvidence(private val instrumentation: Instrument
             waitFor("offline response") { ui { activity.inkView.updateState==4 } };settle()
             verify("An update network failure leaves settings usable with retry",ui { activity.inkView.toolsOpen && activity.inkView.menuPage==MenuPage.UPDATE })
             ui {activity.inkView.openMenu(MenuPage.SETTINGS)};settle()
-            click("Language 中文");click("返回阅读菜单");click("显示 · 纸与光")
-            click("夜间模式 关闭")
+            click("Language 中文");click("返回阅读菜单")
+            click("夜间 关闭")
             ui { activity.inkView.toggleTools() };settle()
             val night=capture("05-night-frontlight")
             val edge=(0 until 23).map { night.getPixel(142+it*142,2250) and 255 }

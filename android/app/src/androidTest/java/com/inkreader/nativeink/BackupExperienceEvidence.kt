@@ -53,7 +53,7 @@ internal class BackupExperienceEvidence(private val host:Instrumentation) {
             waitFor("service import"){!LibraryWork.active};settle()
             val file=ui {activity.inkView.files.list().first {it.name=="文本.pdf"}}
             ui {activity.inkView.openBook(file,activity.inkView.files.text(file));activity.inkView.performAccessibilityAction(InkView.ACTION_TOOLS,null)};settle()
-            command("版式 · 文字与版面");command("重新排版本书");capture(out,"01-reprocess-menu.png")
+            command("排版");command("重新排版本书");capture(out,"01-reprocess-menu.png")
             verify("Reading layout exposes manual reprocessing and original PDF pages",ui {val info=activity.inkView.createAccessibilityNodeInfo();info.text.toString().contains("查看 PDF 原页")&&info.text.toString().contains("无需重复导入")})
             command("重新整理段落与目录")
             waitFor("manual reprocess"){!LibraryWork.active};settle()

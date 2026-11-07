@@ -226,13 +226,15 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             val folio=sourcePage?.let {structure.pageLabels[it]}?.takeIf {it.isNotBlank()} ?: "${pageIndex + 1}"
             drawLabel(c, folio, folioX, y, uiSp(bookLayout.sizing.footerSize), 110, if(odd)Paint.Align.RIGHT else Paint.Align.LEFT)
             if(frame.bookmarks.any {it in pageRange.first().start until pageRange.last().end}) {
+                // Place the bookmark dot above the folio, never beside its digits.
                 label.textSize=uiSp(ReaderSizing(vw,vh).footerSize);label.color=Color.rgb(105,105,105)
-                c.drawCircle(folioX+(if(odd)-uiSp(11f) else uiSp(11f)),y-uiSp(4f),uiSp(2.1f),label)
+                c.drawCircle(folioX,y-uiSp(15f),uiSp(2.1f),label)
             }
         }
-        // Quiet end marks are navigation affordances, not a simulated device bezel.
-        drawChevron(c, bookLayout.chromeMargin + 5, y - 7, false, frame.page > 0)
-        drawChevron(c, vw - bookLayout.chromeMargin - 5, y - 7, true, frame.page < bookLayout.pages.lastIndex)
+        // Keep the page-turn affordances inboard of the outer folio so they never overlap it.
+        val chevronInset = uiSp(46f)
+        drawChevron(c, bookLayout.chromeMargin + chevronInset, y - 7, false, frame.page > 0)
+        drawChevron(c, vw - bookLayout.chromeMargin - chevronInset, y - 7, true, frame.page < bookLayout.pages.lastIndex)
         if (frame.tools) drawTools(c, frame)
         return bitmap
     }
@@ -316,17 +318,21 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 add(item(t("存储与备份", "Storage & backup"),MenuAction.STORAGE))
                 add(item(t("设置", "Settings"),MenuAction.SETTINGS))
             },5,showClose=true) else MenuModel(t("阅读菜单", "Reading menu"), false, buildList {
-                add(bookItem(t("定位 · 目录与进度", "Location · contents"),MenuAction.NAVIGATION))
-                add(MenuRow(t("版式 · 文字与版面", "Typography · layout"),cmd(MenuAction.LAYOUT),listOf(
+                // Five concrete destinations, not taxonomy labels. Paper and night are direct
+                // first-level controls because they are the choices readers actually change.
+                add(item(t("目录", "Contents"),MenuAction.NAVIGATION))
+                add(MenuRow(t("排版", "Layout"),cmd(MenuAction.LAYOUT),listOf(
                     control("A−",if(frame.fontStep>0)MenuAction.FONT_DOWN else null),control(fonts[frame.fontStep].toInt().toString(),null),control("A+",if(frame.fontStep<fonts.lastIndex)MenuAction.FONT_UP else null))))
-                add(item(t("显示 · 纸与光", "Display · paper & light"),MenuAction.DISPLAY))
-                add(bookItem(t("标记 · 书签 ${frame.bookmarks.size}", "Marks · bookmarks ${frame.bookmarks.size}"),MenuAction.BOOKMARKS))
+                add(MenuRow(t("纸张", "Paper"),controls=listOf(t("白瓷","Porcelain"),t("护眼","Gentle"),t("类纸","Paper")).mapIndexed {i,name->control(name,MenuAction.PRESET,i,frame.preset==i)}))
+                add(MenuRow(t("夜间", "Night"),controls=listOf(control(if(frame.night)t("开启","On")else t("关闭","Off"),MenuAction.NIGHT))))
                 add(item(t("更多", "More"),MenuAction.MORE))
             },5,showClose=true)
             MenuPage.DISPLAY -> MenuModel(t("显示 · 纸与光", "Display · paper & light"),true,surfaceRows()+screenRows())
             MenuPage.MORE -> MenuModel(t("更多", "More"),true,buildList {
                 add(item(t("文件库", "Library"),MenuAction.FILES))
                 add(item(t("＋ 导入书籍", "+ Import books"),MenuAction.IMPORT))
+                add(bookItem(t("书签 ${frame.bookmarks.size}", "Bookmarks ${frame.bookmarks.size}"),MenuAction.BOOKMARKS))
+                add(MenuRow(t("深色模式","Dark mode"),controls=listOf(control(if(frame.dark)t("开启","On")else t("关闭","Off"),MenuAction.DARK))))
                 add(item(t("保存与备份", "Storage & backup"),MenuAction.STORAGE))
                 add(item(t("设置", "Settings"),MenuAction.SETTINGS))
                 add(item(t("检查更新", "Check for updates"),MenuAction.CHECK_UPDATE))

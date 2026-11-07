@@ -140,9 +140,9 @@ internal class InkMaterial {
                     readingPresets.y > 0.5 && readingPresets.y < 1.5 ? 1.0 : 0.0, readingPresets.y > 1.5 ? 1.0 : 0.0);
                 float3 modes = mix(beforeMode,afterMode,settling);
                 // Paper tooth scales are chosen for a 308 PPI panel: 2-4 physical pixels, below Nyquist.
-                float grainScale = dot(modes,float3(0.98,0.84,0.66));
-                float fineScale = dot(modes,float3(1.30,1.10,0.86));
-                float capsuleScale = dot(modes,float3(0.62,0.50,0.38));
+                float grainScale = dot(modes,float3(0.98,0.88,1.18));
+                float fineScale = dot(modes,float3(1.30,1.18,1.62));
+                float capsuleScale = dot(modes,float3(0.62,0.55,1.02));
                 float bodyGrain = structure.eval(dp*grainScale+float2(3.0,17.0)).r - structure.eval(dp*grainScale+float2(5.3,20.1)).r;
                 float night = mix(nightLight.x,nightLight.y,settling);
                 float dark = mix(darkMode.x,darkMode.y,settling);
@@ -151,29 +151,19 @@ internal class InkMaterial {
                 float ink = newInk;
 
                 if (active > 0.5 && pageTurn > 0.5) {
-                    // E-ink page update: no lateral motion. A gate-line refresh travels down the panel:
-                    // erase to paper, full pigment flood, opposite flood, then the next page is written
-                    // in a narrow window rather than cross-fading. Fixed 220 ms by product decision.
+                    // Partial e-ink refresh, not a flash: a narrow gate-line boundary retires the
+                    // old page and deposits the next one. The panel never goes blank, white or black.
+                    // Fixed 220 ms by product decision; no lateral motion.
                     float span = max(actualDuration, 1.0);
                     float row = clamp((dp.y - surfaceBounds.y) / max(surfaceBounds.w - surfaceBounds.y, 1.0), 0.0, 1.0);
-                    float t = clamp(actualElapsed - row * 0.14 * span + local * 5.0, 0.0, span);
-                    float holdEnd = 0.04 * span;
-                    float clearEnd = 0.24 * span;
-                    float blackEnd = 0.60 * span;
-                    float whiteEnd = 0.70 * span;
-                    float depositEnd = 0.92 * span;
-                    float whiteLevel = 0.008 + (grain - 0.5) * 0.05 + local * 0.008;
-                    float blackLevel = pageFlash * (1.55 + local * 0.12) + (grain - 0.5) * 0.06;
-                    if (t < holdEnd) ink = oldInk;
-                    else if (t < clearEnd) ink = mix(oldInk, whiteLevel, smoothstep(holdEnd, clearEnd, t));
-                    else if (t < blackEnd) ink = mix(whiteLevel, blackLevel, smoothstep(clearEnd, blackEnd, t));
-                    else if (t < whiteEnd) ink = mix(blackLevel, whiteLevel, smoothstep(blackEnd, whiteEnd, t));
-                    else if (t < depositEnd) {
-                        float k = smoothstep(whiteEnd, depositEnd, t);
-                        // Compact write window: ink appears as a unit, not a long cross-fade.
-                        ink = mix(whiteLevel, newInk, smoothstep(0.35, 0.55, k));
-                    } else ink = newInk;
-                    ink += (structure.eval(floor(p) + float2(0.5)).r - 0.5) * 0.04 * (1.0 - smoothstep(depositEnd, span, t));
+                    float front = clamp(actualElapsed / span * 1.26 - row * 0.26, 0.0, 1.0);
+                    float settle = smoothstep(0.0, 1.0, front);
+                    ink = mix(oldInk, newInk, settle);
+                    // A restrained wavefront keeps the change from feeling like a hard digital cut;
+                    // it never becomes a full-screen pigment flood.
+                    float edge = sin(3.14159 * front);
+                    ink += (grain - 0.5) * 0.012 * edge;
+                    ink += (structure.eval(floor(p) + float2(0.5)).r - 0.5) * 0.006 * edge;
                 } else if (active > 0.5 && fullRefresh < 0.5) {
                     // Black deposition and clearing respond differently to the old -> new change.
                     float t = max(0.0, elapsed - 95.0);
@@ -245,12 +235,13 @@ internal class InkMaterial {
                 float diagShort = dot(modes,float3(0.0,1.15,0.78));
                 float2 fiberD = float2((dp.x*0.707+dp.y*0.707)/max(diagLong,0.001),(dp.x*0.707-dp.y*0.707)/max(diagShort,0.001))+float2(137.0,11.0);
                 float diagonalFibers = structure.eval(fiberD).b-structure.eval(fiberD+float2(1.0,0.0)).b;
-                float surfaceGrain = (grain-0.5)*dot(modes,float3(0.0070,0.0060,0.0100))
-                    +(fine-0.5)*dot(modes,float3(0.0194,0.0128,0.0295))
-                    +(capsule-0.5)*dot(modes,float3(0.0133,0.0090,0.0195))
-                    +(matte-0.5)*dot(modes,float3(0.0040,0.0042,0.0078))
-                    +fibers*dot(modes,float3(0.0,0.0040,0.0105))
-                    +diagonalFibers*dot(modes,float3(0.0,0.0022,0.0072))
+                float surfaceGrain = (grain-0.5)*dot(modes,float3(0.0070,0.0062,0.0052))
+                    +(fine-0.5)*dot(modes,float3(0.0194,0.0136,0.0140))
+                    +(capsule-0.5)*dot(modes,float3(0.0133,0.0092,0.0042))
+                    +(matte-0.5)*dot(modes,float3(0.0040,0.0042,0.0028))
+                    +bodyGrain*dot(modes,float3(0.0,0.0028,0.0064))
+                    +fibers*dot(modes,float3(0.0,0.0032,0.0022))
+                    +diagonalFibers*dot(modes,float3(0.0,0.0018,0.0014))
                     +microLight;
                 // Guided front light approaches the top of the range; scale tooth so it never clips white.
                 surfaceGrain *= mix(1.0,0.55,night);

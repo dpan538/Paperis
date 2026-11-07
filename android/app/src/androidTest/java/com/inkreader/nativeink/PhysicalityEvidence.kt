@@ -108,7 +108,7 @@ internal class PhysicalityEvidence(private val host: Instrumentation) {
             verify("Ambient light leaves pagination and source anchors intact", mapBefore == pageMap())
             run { back.second; }
 
-            // Fixed 220 ms e-ink page refresh: erase -> brief pigment flood -> deposit, then clean.
+            // Fixed 220 ms partial page refresh: a moving boundary, never a blank/flash frame.
             ui { current().inkView.jumpToOffset(0) }; settle()
             val before = screenshot("turn-before")
             val beforeMean = mean(before)
@@ -129,7 +129,7 @@ internal class PhysicalityEvidence(private val host: Instrumentation) {
             val afterA = screenshot("turn-after-a"); val afterB = screenshot("turn-after-b")
             val darkest = samples.minOf { it.second }
             File(out, "turn-samples.json").writeText(JSONObject().put("samples", JSONArray().apply { samples.forEach { put(JSONObject().put("ms", it.first).put("mean", it.second)) } }).toString(2))
-            verify("Page refresh includes a visible pigment flash", darkest < beforeMean - 20.0)
+            verify("Page refresh never blanks the panel or flashes a black/white field", darkest > beforeMean - 40.0)
             verify("Settled page is clean and stable", kotlin.math.abs(mean(afterA) - mean(afterB)) < 0.6)
             afterA.recycle(); afterB.recycle()
 

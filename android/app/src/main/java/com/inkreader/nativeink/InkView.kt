@@ -83,12 +83,13 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         preferences.getInt("spacing", 1).coerceIn(spacing.indices), preferences.getInt("columns", 0).coerceIn(0..2),
         bookmarks = preferences.getStringSet("bookmarks", emptySet()).orEmpty().mapNotNull { it.toIntOrNull() }.filter { it in book.indices }.distinct().sorted(),
         face = files.preferences.getInt("face",0).coerceIn(0,if(customFace == null) 1 else 2),
-        preset = files.preferences.getInt("preset",0).coerceIn(0,2), library = files.preferences.getString("lastBook",null) == null,
+        preset = files.preferences.getInt("preset",0).coerceIn(0,2), library = files.preferences.getString("lastSurface","reader") == "library" || files.preferences.getString("lastBook",null) == null,
         english = files.preferences.getBoolean("english",false), night = files.preferences.getBoolean("night",false),
         dark = files.preferences.getBoolean("dark",false), lightStep = files.preferences.getInt("light",1).coerceIn(0,2), warmth=files.preferences.getInt("warmth",2).coerceIn(0,4),brightnessSet=files.preferences.getBoolean("brightnessSet",false),contrast=files.preferences.getInt("contrast",1).coerceIn(0,2),shelfRecent=files.preferences.getBoolean("shelfRecent",false),ambientEnabled=files.preferences.getBoolean("ambient",true),focus=files.preferences.getBoolean("focus",false))
     private var response = InkResponse(logical)
     private var material: InkMaterial? = null
     private var viewport:ReaderViewport?=null
+    private var pendingViewport=false
     private var safeInsets=Insets.NONE
     private var scale = 1f
     private var vw = 1704f
@@ -117,7 +118,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     private var menuDragging=false
     private var longPressed = false
     private var gestureCancelled = false
-    private val longPress = Runnable { if (!gestureCancelled) { longPressed = true; fullRefresh() } }
+    private val longPress = Runnable { if (!gestureCancelled) longPressed = true }
     var drawCount = 0; private set
     val currentPage get() = logical.page
     val pageCount get() = if (layouts.isEmpty()) 0 else layout(logical).pages.size
@@ -151,7 +152,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             val gestures=insets.getInsets(WindowInsets.Type.mandatorySystemGestures())
             val visible=insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
             val next=Insets.of(maxOf(stable.left,visible.left,gestures.left),maxOf(stable.top,visible.top),maxOf(stable.right,visible.right,gestures.right),maxOf(visible.bottom,stable.bottom))
-            if(next!=safeInsets) { safeInsets=next;updateViewport() }
+            if(next!=safeInsets) { safeInsets=next;if(viewport==null||hasWindowFocus())updateViewport() else pendingViewport=true }
             insets
         }
     }
@@ -163,18 +164,28 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w,h,oldw,oldh)
-        updateViewport()
+        // Recents/overview can briefly resize or re-inset the host window. Never reflow the book
+        // into that transient geometry; apply the deferred viewport when the window is focused again.
+        if(viewport==null||hasWindowFocus())updateViewport() else pendingViewport=true
     }
     override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(newConfig);updateViewport()
+        super.onConfigurationChanged(newConfig);if(viewport==null||hasWindowFocus())updateViewport() else pendingViewport=true
+    }
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if(hasFocus&&pendingViewport){pendingViewport=false;updateViewport()}
     }
     private fun updateViewport() {
         if(width<=0 || height<=0) return
         // Focus mode is edge-to-edge: no decorative 12dp surround, only real cutout/system
         // safe insets remain so text never enters a camera hole.
         val surround=if(logical.focus) 0 else (12*resources.displayMetrics.density).toInt()
+        val framed=safeInsets
+        // Focus is truly edge-to-edge: ignore status/navigation insets as well as the decorative
+        // surround. Otherwise the status-bar area remains as a blank strip until another redraw.
         val next=ReaderViewport.calculate(width,height,resources.displayMetrics.density,resources.configuration.fontScale,
-            safeInsets.left+surround,safeInsets.top+surround,safeInsets.right+surround,safeInsets.bottom+surround)
+            if(logical.focus)0 else framed.left+surround,if(logical.focus)0 else framed.top+surround,
+            if(logical.focus)0 else framed.right+surround,if(logical.focus)0 else framed.bottom+surround)
         if(next==viewport) return
         viewport=next;scale=next.density;vw=next.width;vh=next.height
         layouts.clear()
@@ -336,7 +347,6 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                     control(t("专注","Focus"),MenuAction.FOCUS,0,frame.focus))))
                 add(item(t("文件库", "Library"),MenuAction.FILES))
                 add(item(t("设置", "Settings"),MenuAction.SETTINGS))
-                add(item(t("更多", "More"),MenuAction.MORE))
             },5,showClose=true)
             MenuPage.DISPLAY -> MenuModel(t("显示 · 纸与光", "Display · paper & light"),true,surfaceRows()+screenRows())
             MenuPage.MORE -> MenuModel(t("更多", "More"),true,buildList {
@@ -349,6 +359,8 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             })
             MenuPage.SETTINGS -> MenuModel(t("设置", "Settings"),true,buildList {
                 add(MenuRow(t("语言", "Language"),controls=listOf(control("中文",MenuAction.LANGUAGE,0,!frame.english),control("English",MenuAction.LANGUAGE,1,frame.english))))
+                add(item(t("＋ 导入书籍", "+ Import books"),MenuAction.IMPORT))
+                add(bookItem(t("书签 ${frame.bookmarks.size}", "Bookmarks ${frame.bookmarks.size}"),MenuAction.BOOKMARKS))
                 add(item(t("检查更新", "Check for updates"),MenuAction.CHECK_UPDATE))
                 add(item(t("提交反馈", "Send feedback"),MenuAction.FEEDBACK))
                 add(item(t("保存与备份", "Storage & backup"),MenuAction.STORAGE))
@@ -441,7 +453,6 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuPage.PRESETS -> MenuModel(t("阅读预设","Reading presets"),true,surfaceRows(),if(ReaderSizing(vw,vh).phone)0 else rootRows)
             MenuPage.SCREEN -> MenuModel(t("屏幕与刷新","Screen & refresh"), true, screenRows())
             MenuPage.NAVIGATION -> MenuModel(t("目录与进度","Contents & progress"),true,buildList {
-                add(item(t("书籍开头","Beginning"),MenuAction.CHAPTER,0))
                 add(MenuRow(t("跳转页码","Page"),controls=listOf(control("−",if(frame.draftPage>0)MenuAction.DRAFT_DOWN else null),control("${frame.draftPage+1}/${bookLayout.pages.size}",null),control("+",if(frame.draftPage<bookLayout.pages.lastIndex)MenuAction.DRAFT_UP else null))))
                 add(MenuRow("",controls=listOf(0,25,50,75,100).map {control("$it%",MenuAction.PERCENT,it)}))
                 add(item(t("前往第 ${frame.draftPage+1} 页","Go to page ${frame.draftPage+1}"),MenuAction.GO))
@@ -566,7 +577,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     /** Resuming from the library also makes this the remembered book, so the resume row reflects it. */
     private fun resumeReading() {
         if(files.get(entry.id)==null)return
-        files.preferences.edit().putString("lastBook",entry.id).apply()
+        files.preferences.edit().putString("lastBook",entry.id).putString("lastSurface","reader").apply()
         request(logical.copy(library=false,tools=false))
     }
     internal fun backInShelf(): Boolean {
@@ -786,6 +797,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
 
     internal fun showFiles(notice: String = "", busy: Boolean = false) {
         removeCallbacks(noticeClear)
+        files.preferences.edit().putString("lastSurface","library").apply()
         if(!logical.library) savePreferences()
         var rebuilt=false
         if(!busy) {
@@ -828,6 +840,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     }
     internal fun openBook(file: BookFile, text: String) {
         savePreferences()
+        files.preferences.edit().putString("lastSurface","reader").apply()
         entry=file; book=text; structure=files.structure(file,text);preferences=files.reading(file)
         savedOffset=preferences.getInt("offset",0)
         logical=logical.copy(page=0,tools=false,library=false,busy=false,notice="",

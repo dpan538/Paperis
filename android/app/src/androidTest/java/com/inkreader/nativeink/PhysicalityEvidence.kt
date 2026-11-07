@@ -38,7 +38,7 @@ internal class PhysicalityEvidence(private val host: Instrumentation) {
             val all = checkNotNull(uiAutomation.takeScreenshot())
             val v = ui { current().inkView.currentViewport!! }
             val cropped = Bitmap.createBitmap(all, v.left, v.top, all.width - v.left - v.right, all.height - v.top - v.bottom)
-            all.recycle()
+            if (cropped !== all) all.recycle()
             if (name != null) File(out, "$name.png").outputStream().use { cropped.compress(Bitmap.CompressFormat.PNG, 100, it) }
             return cropped
         }
@@ -136,6 +136,7 @@ internal class PhysicalityEvidence(private val host: Instrumentation) {
             // Focus mode: paper only, system status bar hidden; still able to return.
             ui { current().inkView.toggleFocus() }; settle()
             verify("Focus mode shows only the page", ui { current().inkView.focusMode } && !ui { current().window.decorView.rootWindowInsets.isVisible(android.view.WindowInsets.Type.statusBars()) })
+            verify("Focus viewport is edge-to-edge with no status-bar blank strip", ui { val v=current().inkView.currentViewport!!;v.left==0&&v.top==0&&v.right==0&&v.bottom==0 })
             val focus=screenshot("focus-mode")
             val focusPixels=IntArray(focus.width*focus.height);focus.getPixels(focusPixels,0,focus.width,0,0,focus.width,focus.height)
             val focusSamples=listOf(0 to 0,focus.width-90 to 0,0 to focus.height-90,focus.width-90 to focus.height-90,focus.width/2-45 to focus.height/2-45).map {(x,y)->var sum=0.0;for(dy in 0 until 84 step 4)for(dx in 0 until 84 step 4){val c=focusPixels[(y+dy)*focus.width+x+dx];sum+=.2126*(c shr 16 and 255)+.7152*(c shr 8 and 255)+.0722*(c and 255)};sum/(21.0*21.0)}

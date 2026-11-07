@@ -177,14 +177,11 @@ internal class InkMaterial {
                 }
 
                 if (active > 0.5 && fullRefresh > 0.5) {
-                    // Screen-wide erase/invert/deposit sequence; no spatial travelling wipe.
-                    float t = elapsed + local * 12.0;
-                    if (t < 95.0) ink = oldInk;
-                    else if (t < 225.0) ink = mix(oldInk, 0.95 - oldInk * 0.68, smoothstep(95.0, 185.0, t));
-                    else if (t < 385.0) ink = mix(0.95 - oldInk * 0.68, 0.015, smoothstep(225.0, 365.0, t));
-                    else if (t < 535.0) ink = mix(0.015, 0.86, smoothstep(385.0, 470.0, t));
-                    else if (t < 690.0) ink = mix(0.86, 0.0, smoothstep(535.0, 670.0, t));
-                    else ink = newInk * smoothstep(690.0, 1000.0, t);
+                    // A clean redraw is still a page update, not a screen-wide black/white flash.
+                    // Keep the final ghost-free target but settle quickly without luminance inversion.
+                    float t = clamp(elapsed / 180.0, 0.0, 1.0);
+                    ink = mix(oldInk, newInk, t);
+                    ink += (grain - 0.5) * 0.012 * (1.0 - t);
                 }
 
                 ink = clamp(ink,0.0,1.0);
@@ -199,7 +196,7 @@ internal class InkMaterial {
                 // Texture never changes solid ink density or the selected contrast level.
                 // Three deliberately different physical papers: dense porcelain, soft warm gentle,
                 // and coarser fibrous paper. Differences are texture/density, not just brightness.
-                float paperBase = mix(dot(modes,float3(0.947,0.936,0.930)),0.082,dark);
+                float paperBase = mix(dot(modes,float3(0.966,0.958,0.952)),0.082,dark);
                 float frontEnergy = night*(0.18+0.62*lampPower);
                 paperBase += (1.0-paperBase)*frontEnergy*mix(1.0,0.06,dark);
                 float pigment = mix(0.085-contrast*0.045,0.80+contrast*0.06,dark);

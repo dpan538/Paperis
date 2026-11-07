@@ -62,7 +62,7 @@ internal class ReadingExperienceEvidence(private val instrumentation: Instrument
                 uiAutomation.injectInputEvent(event,true);event.recycle()
             }
             settle();capture("01-reading-menu").recycle()
-            click("更多");click("＋ 导入书籍")
+            click("设置");click("＋ 导入书籍")
             verify("More → Import opens a native import panel",ui { activity.inkView.menuPage==MenuPage.IMPORT && activity.inkView.toolsOpen })
             capture("02-import-panel").recycle()
             click("＋ 从文件选择")

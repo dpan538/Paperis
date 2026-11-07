@@ -93,6 +93,7 @@ internal class UpdateEvidence(private val host:Instrumentation) {
             waitFor("available"){!updates.working&&updates.ui.phase==UpdatePhase.AVAILABLE}
             verify("Update opens an in-app panel without a browser",!browser&&ui {activity.inkView.menuPage==MenuPage.UPDATE})
             verify("Beta channel and curated core highlights are explicit",updates.candidate?.channel=="beta"&&ui {activity.inkView.updateChannel}=="beta"&&ui {activity.inkView.updateNotes}.contains("220 ms")&&!ui {activity.inkView.updateNotes}.contains("github"))
+            SystemClock.sleep(400);waitForIdleSync()
             uiAutomation.takeScreenshot()?.let {b->File(output,"beta-update-panel.png").outputStream().use {b.compress(Bitmap.CompressFormat.PNG,100,it)};b.recycle()}
             ui {activity.inkView.menuCommand(MenuCommand(MenuAction.DOWNLOAD_UPDATE))}
             waitFor("retained partial"){!updates.working&&updates.ui.phase==UpdatePhase.AVAILABLE&&offsets.size==1}

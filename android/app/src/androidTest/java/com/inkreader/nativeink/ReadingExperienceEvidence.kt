@@ -143,7 +143,7 @@ internal class ReadingExperienceEvidence(private val instrumentation: Instrument
             verify("An update network failure leaves settings usable with retry",ui { activity.inkView.toolsOpen && activity.inkView.menuPage==MenuPage.UPDATE })
             ui {activity.inkView.openMenu(MenuPage.SETTINGS)};settle()
             click("Language 中文");click("返回阅读菜单")
-            click("夜间模式 关闭")
+            click("模式 夜间")
             ui { activity.inkView.toggleTools() };settle()
             val night=capture("05-night-frontlight")
             val edge=(0 until 23).map { night.getPixel(142+it*142,2250) and 255 }

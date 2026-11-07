@@ -72,12 +72,12 @@ internal class InkMaterial {
         // rebinds its own page buffers; viewport changes no longer recompile the shader.
         private val sharedRuntime: RuntimeShader by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
             RuntimeShader(SOURCE).also { shader ->
-                val texture = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
+                val texture = Bitmap.createBitmap(1024, 1024, Bitmap.Config.ARGB_8888)
                 val random = Random(0x494E4B4C41594552L)
-                val values = IntArray(512 * 512) {
+                val values = IntArray(1024 * 1024) {
                     Color.rgb(random.nextInt(256), random.nextInt(256), random.nextInt(256))
                 }
-                texture.setPixels(values, 0, 512, 0, 0, 512, 512)
+                texture.setPixels(values, 0, 1024, 0, 0, 1024, 1024)
                 shader.setInputBuffer("structure", BitmapShader(texture, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT).apply {
                     filterMode = BitmapShader.FILTER_MODE_LINEAR
                 })
@@ -144,6 +144,7 @@ internal class InkMaterial {
                 float fineScale = dot(modes,float3(1.30,1.18,1.62));
                 float capsuleScale = dot(modes,float3(0.62,0.55,1.02));
                 float bodyGrain = structure.eval(dp*grainScale+float2(3.0,17.0)).r - structure.eval(dp*grainScale+float2(5.3,20.1)).r;
+                float ultra = structure.eval(dp*2.42+float2(211.0,73.0)).r - structure.eval(dp*2.42+float2(212.6,74.4)).r;
                 float night = mix(nightLight.x,nightLight.y,settling);
                 float dark = mix(darkMode.x,darkMode.y,settling);
                 float lampPower = mix(lightLevel.x,lightLevel.y,settling)*0.25+0.5;
@@ -236,8 +237,9 @@ internal class InkMaterial {
                 float2 fiberD = float2((dp.x*0.707+dp.y*0.707)/max(diagLong,0.001),(dp.x*0.707-dp.y*0.707)/max(diagShort,0.001))+float2(137.0,11.0);
                 float diagonalFibers = structure.eval(fiberD).b-structure.eval(fiberD+float2(1.0,0.0)).b;
                 float surfaceGrain = (grain-0.5)*dot(modes,float3(0.0070,0.0062,0.0052))
-                    +(fine-0.5)*dot(modes,float3(0.0194,0.0136,0.0140))
-                    +(capsule-0.5)*dot(modes,float3(0.0133,0.0092,0.0042))
+                    +(fine-0.5)*dot(modes,float3(0.0194,0.0142,0.0155))
+                    +(ultra-0.5)*dot(modes,float3(0.0060,0.0080,0.0120))
+                    +(capsule-0.5)*dot(modes,float3(0.0133,0.0092,0.0038))
                     +(matte-0.5)*dot(modes,float3(0.0040,0.0042,0.0028))
                     +bodyGrain*dot(modes,float3(0.0,0.0028,0.0064))
                     +fibers*dot(modes,float3(0.0,0.0032,0.0022))

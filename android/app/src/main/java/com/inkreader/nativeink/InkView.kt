@@ -330,15 +330,16 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 add(MenuRow(t("排版", "Layout"),cmd(MenuAction.LAYOUT),listOf(
                     control("A−",if(frame.fontStep>0)MenuAction.FONT_DOWN else null),control(fonts[frame.fontStep].toInt().toString(),null),control("A+",if(frame.fontStep<fonts.lastIndex)MenuAction.FONT_UP else null))))
                 add(MenuRow(t("纸张", "Paper"),controls=listOf(t("白瓷","Porcelain"),t("护眼","Gentle"),t("类纸","Paper")).mapIndexed {i,name->control(name,MenuAction.PRESET,i,frame.preset==i)}))
-                add(MenuRow(t("夜间模式", "Night"),controls=listOf(control(if(frame.night)t("开启","On")else t("关闭","Off"),MenuAction.NIGHT))))
-                add(MenuRow(t("深色模式", "Dark"),controls=listOf(control(if(frame.dark)t("开启","On")else t("关闭","Off"),MenuAction.DARK))))
-                add(MenuRow(t("专注模式", "Focus"),controls=listOf(control(if(frame.focus)t("开启","On")else t("关闭","Off"),MenuAction.FOCUS))))
+                add(MenuRow(t("模式", "Modes"),controls=listOf(
+                    control(t("夜间","Night"),MenuAction.NIGHT,0,frame.night),
+                    control(t("深色","Dark"),MenuAction.DARK,0,frame.dark),
+                    control(t("专注","Focus"),MenuAction.FOCUS,0,frame.focus))))
+                add(item(t("文件库", "Library"),MenuAction.FILES))
                 add(item(t("设置", "Settings"),MenuAction.SETTINGS))
                 add(item(t("更多", "More"),MenuAction.MORE))
             },5,showClose=true)
             MenuPage.DISPLAY -> MenuModel(t("显示 · 纸与光", "Display · paper & light"),true,surfaceRows()+screenRows())
             MenuPage.MORE -> MenuModel(t("更多", "More"),true,buildList {
-                add(item(t("文件库", "Library"),MenuAction.FILES))
                 add(item(t("＋ 导入书籍", "+ Import books"),MenuAction.IMPORT))
                 add(bookItem(t("书签 ${frame.bookmarks.size}", "Bookmarks ${frame.bookmarks.size}"),MenuAction.BOOKMARKS))
                 add(item(t("保存与备份", "Storage & backup"),MenuAction.STORAGE))
@@ -354,6 +355,11 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 if(LibraryWork.pending(context))add(item(t("继续上次整理", "Resume unfinished work"),MenuAction.RESUME))
                 add(MenuRow("Paperis ${BuildConfig.VERSION_NAME}"))
             },rootRows)
+            MenuPage.UPDATE_NOTES -> MenuModel(t("更新内容", "What's new"),true,buildList {
+                val lines=frame.updateNotes.lineSequence().map {it.trim()}.filter {it.isNotEmpty()}.toList()
+                if(lines.isEmpty())add(MenuRow(t("暂无更新说明","No release notes")))
+                else lines.forEach {line->add(MenuRow("· $line"))}
+            })
             MenuPage.UPDATE -> MenuModel(t("应用更新", "App updates"),true,buildList {
                 val u=frame.update
                 val channel=frame.updateChannel.ifBlank {u.channel}
@@ -373,8 +379,11 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                     else->t("应用内下载更新","Download updates here")
                 }))
                 // Only the short reader-facing core list from our update manifest; never the raw
-                // GitHub release body.
-                frame.updateNotes.lineSequence().map {it.trim()}.filter {it.isNotEmpty()}.take(5).forEach {line->add(MenuRow("· $line"))}
+                // GitHub release body. Keep at most two lines in this panel so the download/install
+                // action is never pushed out of the visible menu; the full list scrolls separately.
+                val updateLines=frame.updateNotes.lineSequence().map {it.trim()}.filter {it.isNotEmpty()}.toList()
+                updateLines.take(2).forEach {line->add(MenuRow("· $line"))}
+                if(updateLines.isNotEmpty())add(item(t("查看更新内容 · ${updateLines.size} 条", "What's new · ${updateLines.size} items"),MenuAction.UPDATE_NOTES))
                 if(u.phase==UpdatePhase.AVAILABLE)add(item(t(if(beta)"下载测试版更新" else "下载正式版更新",if(beta)"Download beta update" else "Download stable update"),MenuAction.DOWNLOAD_UPDATE))
                 if(u.phase==UpdatePhase.READY)add(item(t("安装更新", "Install update"),MenuAction.INSTALL_UPDATE))
                 if(u.phase in setOf(UpdatePhase.DOWNLOADING,UpdatePhase.CHECKING,UpdatePhase.VERIFYING))add(item(t("暂停", "Pause"),MenuAction.CANCEL_UPDATE))
@@ -521,6 +530,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuAction.DISPLAY -> openMenu(MenuPage.DISPLAY)
             MenuAction.MORE -> openMenu(MenuPage.MORE)
             MenuAction.FOCUS -> toggleFocus()
+            MenuAction.UPDATE_NOTES -> openMenu(MenuPage.UPDATE_NOTES)
             MenuAction.BOOKMARKS -> openMenu(MenuPage.BOOKMARKS)
             MenuAction.LAYOUT -> openMenu(MenuPage.LAYOUT)
             MenuAction.SCREEN -> openMenu(MenuPage.SCREEN)

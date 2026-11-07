@@ -291,8 +291,11 @@ class MainActivity : Activity() {
     override fun onDestroy() { if(::readingOrientation.isInitialized)readingOrientation.close();LibraryWork.observer=null;feedbackDialog?.dismiss();if(::readerFeedback.isInitialized)readerFeedback.close();imports.shutdown();if(::appUpdates.isInitialized)appUpdates.close(); super.onDestroy() }
 
     internal fun applyFocus(enabled:Boolean) {
+        if(enabled) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
         window.insetsController?.apply {
-            if(enabled) hide(WindowInsets.Type.statusBars()) else show(WindowInsets.Type.statusBars())
+            if(enabled) hide(WindowInsets.Type.systemBars()) else {show(WindowInsets.Type.statusBars());hide(WindowInsets.Type.navigationBars())}
+            systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             setSystemBarsAppearance(if(::inkView.isInitialized&&inkView.darkEnabled)0 else WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS)
         }
         fullscreen()
@@ -301,8 +304,7 @@ class MainActivity : Activity() {
     private fun fullscreen() {
         val focus=::inkView.isInitialized&&inkView.focusMode
         window.insetsController?.apply {
-            if(focus) hide(WindowInsets.Type.statusBars()) else show(WindowInsets.Type.statusBars())
-            hide(WindowInsets.Type.navigationBars())
+            if(focus) hide(WindowInsets.Type.systemBars()) else {show(WindowInsets.Type.statusBars());hide(WindowInsets.Type.navigationBars())}
             setSystemBarsAppearance(if(::inkView.isInitialized&&inkView.darkEnabled)0 else WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS)
             systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }

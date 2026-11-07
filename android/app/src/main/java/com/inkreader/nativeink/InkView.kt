@@ -88,6 +88,10 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         dark = files.preferences.getBoolean("dark",false), lightStep = files.preferences.getInt("light",1).coerceIn(0,2), warmth=files.preferences.getInt("warmth",2).coerceIn(0,4),brightnessSet=files.preferences.getBoolean("brightnessSet",false),contrast=files.preferences.getInt("contrast",1).coerceIn(0,2),shelfRecent=files.preferences.getBoolean("shelfRecent",false),ambientEnabled=files.preferences.getBoolean("ambient",true),focus=files.preferences.getBoolean("focus",false))
     private var response = InkResponse(logical)
     private var material: InkMaterial? = null
+    private var focusSnapshot:Bitmap?=null
+    private var focusTransitionStart=0L
+    private val focusTransitionMs=280L
+    private val focusFade=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private var viewport:ReaderViewport?=null
     private var pendingViewport=false
     private var safeInsets=Insets.NONE
@@ -179,7 +183,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         if(width<=0 || height<=0) return
         // Focus mode is edge-to-edge: no decorative 12dp surround, only real cutout/system
         // safe insets remain so text never enters a camera hole.
-        val surround=if(logical.focus) 0 else (12*resources.displayMetrics.density).toInt()
+        val surround=0
         val framed=safeInsets
         // Focus is truly edge-to-edge: ignore status/navigation insets as well as the decorative
         // surround. Otherwise the status-bar area remains as a blank strip until another redraw.
@@ -345,6 +349,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                     control(t("夜间","Night"),MenuAction.NIGHT,0,frame.night),
                     control(t("深色","Dark"),MenuAction.DARK,0,frame.dark),
                     control(t("专注","Focus"),MenuAction.FOCUS,0,frame.focus))))
+                add(MenuRow(t("书签", "Bookmarks"),cmd(MenuAction.BOOKMARKS),listOf(control(if(currentMarked)t("移除","Remove")else t("添加","Add"),MenuAction.BOOKMARK_TOGGLE))))
                 add(item(t("文件库", "Library"),MenuAction.FILES))
                 add(item(t("设置", "Settings"),MenuAction.SETTINGS))
             },5,showClose=true)
@@ -360,7 +365,6 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuPage.SETTINGS -> MenuModel(t("设置", "Settings"),true,buildList {
                 add(MenuRow(t("语言", "Language"),controls=listOf(control("中文",MenuAction.LANGUAGE,0,!frame.english),control("English",MenuAction.LANGUAGE,1,frame.english))))
                 add(item(t("＋ 导入书籍", "+ Import books"),MenuAction.IMPORT))
-                add(bookItem(t("书签 ${frame.bookmarks.size}", "Bookmarks ${frame.bookmarks.size}"),MenuAction.BOOKMARKS))
                 add(item(t("检查更新", "Check for updates"),MenuAction.CHECK_UPDATE))
                 add(item(t("提交反馈", "Send feedback"),MenuAction.FEEDBACK))
                 add(item(t("保存与备份", "Storage & backup"),MenuAction.STORAGE))
@@ -616,11 +620,17 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     internal val updateChannel get()=logical.updateChannel
     internal val updateNotes get()=logical.updateNotes
     internal fun toggleFocus() {
+        if(width<=0||height<=0)return
+        val old=runCatching {render(logical)}.getOrNull()
         val next=!logical.focus
         files.preferences.edit().putBoolean("focus",next).apply()
-        request(logical.copy(focus=next))
+        logical=logical.copy(focus=next)
         updateViewport()
         (context as? MainActivity)?.applyFocus(next)
+        // Recompute geometry instantly, then cross-fade from the exact previous frame with a
+        // strictly linear ramp. This keeps both entering and leaving focus smooth and symmetric.
+        focusSnapshot?.recycle();focusSnapshot=old;focusTransitionStart=SystemClock.uptimeMillis()
+        invalidate()
     }
     internal fun toggleAmbient() {
         val enabled=!logical.ambientEnabled
@@ -682,6 +692,15 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         material?.draw(canvas, response.canonicalElapsed(now), response.active != null, response.active?.full == true,
             if (reducedMotion || !logical.optical) 0f else surfaceLight.pose.x, if (reducedMotion || !logical.optical) 0f else surfaceLight.pose.y, viewport,response.active?.surface==true,
             currentAmbient(now),response.active?.pageTurn==true,response.elapsed(now),response.duration,pageFlash())
+        focusSnapshot?.let {snapshot->
+            val t=((now-focusTransitionStart).toFloat()/focusTransitionMs).coerceIn(0f,1f)
+            if(t>=1f){snapshot.recycle();focusSnapshot=null}
+            else {
+                focusFade.alpha=((1f-t)*255f).toInt().coerceIn(0,255)
+                canvas.drawBitmap(snapshot,0f,0f,focusFade)
+                postInvalidateOnAnimation()
+            }
+        }
         drawCount++
         if (response.active != null && active) postInvalidateOnAnimation()
         if(ambientStart>0L&&now-ambientStart<AMBIENT_FADE_MS) postInvalidateOnAnimation()

@@ -147,7 +147,7 @@ internal class InkMaterial {
                 float ultra = structure.eval(dp*2.42+float2(211.0,73.0)).r - structure.eval(dp*2.42+float2(212.6,74.4)).r;
                 float night = mix(nightLight.x,nightLight.y,settling);
                 float dark = mix(darkMode.x,darkMode.y,settling);
-                float lampPower = mix(lightLevel.x,lightLevel.y,settling)*0.25+0.5;
+                float lampPower = mix(lightLevel.x,lightLevel.y,settling)*0.32+0.32;
                 float contrast = mix(contrastLevel.x,contrastLevel.y,settling)-1.0;
                 float ink = newInk;
 
@@ -196,7 +196,7 @@ internal class InkMaterial {
                 // Texture never changes solid ink density or the selected contrast level.
                 // Three deliberately different physical papers: dense porcelain, soft warm gentle,
                 // and coarser fibrous paper. Differences are texture/density, not just brightness.
-                float paperBase = mix(dot(modes,float3(0.966,0.958,0.952)),0.082,dark);
+                float paperBase = mix(dot(modes,float3(0.958,0.950,0.944)),0.082,dark);
                 float frontEnergy = night*(0.18+0.62*lampPower);
                 paperBase += (1.0-paperBase)*frontEnergy*mix(1.0,0.06,dark);
                 float pigment = mix(0.085-contrast*0.045,0.80+contrast*0.06,dark);

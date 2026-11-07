@@ -13,14 +13,14 @@ Paperis 不替代墨水屏硬件，也不宣称零功耗或真实电泳粒子。
 优先适配 **Xiaomi Pad 9 Pro Max**：13.3 英寸 3.4K LCD（3408 × 2272，308 PPI，144 Hz，700 nits 典型亮度），以 3408 × 2272 作为渲染与验收基准。
 
 ![Android 13+](https://img.shields.io/badge/Android-13%2B-555555)
-![Stable](https://img.shields.io/badge/Status-1.0.4-303030)
+![Stable](https://img.shields.io/badge/Status-1.0.5-303030)
 [![MIT License](https://img.shields.io/badge/License-MIT-555555)](LICENSE)
 
 ## 下载与安装
 
-[![下载 Android APK](https://img.shields.io/badge/下载_1.0.4_APK-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v1.0.4/Paperis-1.0.4.apk)
+[![下载 Android APK](https://img.shields.io/badge/下载_1.0.5_APK-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v1.0.5/Paperis-1.0.5.apk)
 
-**[直接下载 1.0.4 APK](https://github.com/dpan538/Paperis/releases/download/v1.0.4/Paperis-1.0.4.apk)** · [版本与历史下载](https://github.com/dpan538/Paperis/releases)
+**[直接下载 1.0.5 APK](https://github.com/dpan538/Paperis/releases/download/v1.0.5/Paperis-1.0.5.apk)** · [版本与历史下载](https://github.com/dpan538/Paperis/releases)
 
 需要 **Android 13 及以上、ARM64 设备**。已有官方版本可直接覆盖升级，也可在应用内检查更新。
 

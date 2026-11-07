@@ -41,15 +41,15 @@ internal class ReadingRevisionEvidence(private val host:Instrumentation) {
             val root=ui {activity.inkView.menuBounds};click("设置")
             verify("Settings keeps the shared ink panel width and side",ui {activity.inkView.menuBounds.width()==root.width()&&kotlin.math.abs(activity.inkView.menuBounds.left-root.left)<.5f})
             click("返回阅读菜单");ui {activity.inkView.openMenu(MenuPage.PRESETS)};settle();capture("01-reading-presets").recycle()
-            verify("Presets combines three surfaces, five tones, three brightness levels, night and dark",actions().count {it.startsWith("冷暖 ")}==5&&actions().containsAll(listOf("屏幕亮度 低","屏幕亮度 中","屏幕亮度 高","夜间模式 关闭","深色模式 关闭")))
+            verify("Presets combines three surfaces, six tones, three brightness levels, night and dark",actions().count {it.startsWith("冷暖 ")}==6&&actions().containsAll(listOf("屏幕亮度 低","屏幕亮度 中","屏幕亮度 高","夜间模式 关闭","深色模式 关闭")))
             val tones=mutableListOf<Int>()
-            for((step,name) in listOf("冷","微冷","中性","微暖","暖").withIndex()) {
+            for((step,name) in listOf("冷","偏冷","中性","偏暖","暖","更暖").withIndex()) {
                 click("冷暖 $name");ui {activity.inkView.toggleTools()};val bitmap=capture("tone-$step")
                 val color=bitmap.getPixel(1704,230);tones+=Color.red(color)-Color.blue(color);bitmap.recycle()
                 verify("Tone $step is selected and persisted",ui {activity.inkView.warmthStep==step}&&targetContext.getSharedPreferences("files",0).getInt("warmth",-1)==step)
                 ui {activity.inkView.openMenu(MenuPage.PRESETS)};settle()
             }
-            verify("The five paper tones progress visibly from cool to warm",tones.zipWithNext().all {(a,b)->b>a})
+            verify("The six paper tones progress visibly from cool to warm",tones.zipWithNext().all {(a,b)->b>a})
             for((step,name) in listOf("低","中","高").withIndex()) {
                 click("屏幕亮度 $name")
                 verify("Brightness $step changes the actual app window without system settings permission",ui {activity.inkView.brightnessOverridden&&kotlin.math.abs(activity.window.attributes.screenBrightness-floatArrayOf(.28f,.60f,1f)[step])<.001f})

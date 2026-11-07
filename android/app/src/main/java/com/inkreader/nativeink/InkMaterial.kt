@@ -147,7 +147,7 @@ internal class InkMaterial {
                 float ultra = structure.eval(dp*2.42+float2(211.0,73.0)).r - structure.eval(dp*2.42+float2(212.6,74.4)).r;
                 float night = mix(nightLight.x,nightLight.y,settling);
                 float dark = mix(darkMode.x,darkMode.y,settling);
-                float lampPower = mix(lightLevel.x,lightLevel.y,settling)*0.32+0.32;
+                float lampPower = mix(lightLevel.x,lightLevel.y,settling)*0.35+0.25;
                 float contrast = mix(contrastLevel.x,contrastLevel.y,settling)-1.0;
                 float ink = newInk;
 
@@ -196,7 +196,7 @@ internal class InkMaterial {
                 // Texture never changes solid ink density or the selected contrast level.
                 // Three deliberately different physical papers: dense porcelain, soft warm gentle,
                 // and coarser fibrous paper. Differences are texture/density, not just brightness.
-                float paperBase = mix(dot(modes,float3(0.958,0.950,0.944)),0.082,dark);
+                float paperBase = mix(dot(modes,float3(0.960,0.954,0.948)),0.082,dark);
                 float frontEnergy = night*(0.18+0.62*lampPower);
                 paperBase += (1.0-paperBase)*frontEnergy*mix(1.0,0.06,dark);
                 float pigment = mix(0.085-contrast*0.045,0.80+contrast*0.06,dark);
@@ -259,7 +259,7 @@ internal class InkMaterial {
                 float highY = toLinearSrgb(float3(clamp(max(paperBase+0.014,0.98),0.0,1.0))).r;
                 float gamut = clamp(min(lowY,1.0-highY)/0.075,0.0,1.0);
                 float warmth = (mix(temperature.x,temperature.y,settling)-2.0)*0.5
-                    +dot(modes,float3(0.008,0.130,0.050))+night*0.024;
+                    +dot(modes,float3(-0.014,0.095,0.030));
                 float3 neutral = toLinearSrgb(float3(tone));
                 float3 tint = float3(0.020,0.00102041387,-0.069)*warmth*gamut*(1.0-quantized)*(1.0-dark)*window;
                 float3 encoded = fromLinearSrgb(neutral+tint);

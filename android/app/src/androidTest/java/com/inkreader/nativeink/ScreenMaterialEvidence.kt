@@ -104,7 +104,7 @@ internal class ScreenMaterialEvidence(private val host:Instrumentation,private v
             val warmthGroups=mutableMapOf<String,MutableList<Double>>();val disabledReferences=mutableMapOf<String,ByteArray>();val hashBuffer=java.nio.ByteBuffer.allocate(source.byteCount);var caseIndex=0
             var maxPaper=0.0;var maxChroma=0.0;var maxInk=0.0
             Gpu(host,720,480).use {gpu->
-                for(preset in 0..2)for(night in listOf(false,true))for(dark in listOf(false,true))for(light in 0..2)for((poseIndex,pose) in poses.withIndex())for(warmth in 0..4) {
+                for(preset in 0..2)for(night in listOf(false,true))for(dark in listOf(false,true))for(light in 0..2)for((poseIndex,pose) in poses.withIndex())for(warmth in 0..5) {
                     val caseId=caseIndex++;if(options.getString("case")?.toIntOrNull()?.let {it/5!=caseId/5}==true)continue
                     val contrast=(warmth+light+poseIndex)%3
                     val appearance=InkAppearance(preset,night,dark,light,warmth,contrast,optical=false)
@@ -134,7 +134,7 @@ internal class ScreenMaterialEvidence(private val host:Instrumentation,private v
                     if(warmth==2){val key="$preset/$night/$dark/$light/$contrast";hashBuffer.clear();b.copyPixelsToBuffer(hashBuffer);hashBuffer.flip();val digest=java.security.MessageDigest.getInstance("SHA-256").apply {update(hashBuffer)}.digest();disabledReferences[key]?.let {check(it.contentEquals(digest)){"Disabled lighting still uses pose"}}?:run {disabledReferences[key]=digest}}
                     rounds.put(context.put("field",field.json()).put("passed",true));b.recycle()
                 }
-                verify("GPU matrix covers the requested presets/tones/light/polarity/poses with balanced contrast",rounds.length()==if(options.containsKey("case"))5 else 900)
+                verify("GPU matrix covers the requested presets/tones/light/polarity/poses with balanced contrast",rounds.length()==if(options.containsKey("case"))5 else 1080)
                 val worstGroup=warmthGroups.maxBy {it.value.max()-it.value.min()}
                 val maxWarmDrift=worstGroup.value.max()-worstGroup.value.min()
                 val parts=worstGroup.key.split('/')
@@ -182,7 +182,7 @@ internal class ScreenMaterialEvidence(private val host:Instrumentation,private v
                         profiles.put(JSONObject().put("width",w).put("height",h).put("density",density).put("warmth",tone).put("field",field.json()))
                         if(tone==2)save(bitmap,"profile-$w-$h.png");bitmap.recycle()
                     }}
-                    verify("Full-window $w x $h at density $density preserves brightness across all five tones",values.max()-values.min()<.0008)
+                    verify("Full-window $w x $h at density $density preserves brightness across all six tones",values.max()-values.min()<.0008)
                     image.recycle()
                 }
                 File(out,"profiles.json").writeText(profiles.toString(2))

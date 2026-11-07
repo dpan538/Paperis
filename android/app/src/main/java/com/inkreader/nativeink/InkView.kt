@@ -85,7 +85,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         face = files.preferences.getInt("face",0).coerceIn(0,if(customFace == null) 1 else 2),
         preset = files.preferences.getInt("preset",0).coerceIn(0,2), library = files.preferences.getString("lastSurface","reader") == "library" || files.preferences.getString("lastBook",null) == null,
         english = files.preferences.getBoolean("english",false), night = files.preferences.getBoolean("night",false),
-        dark = files.preferences.getBoolean("dark",false), lightStep = files.preferences.getInt("light",1).coerceIn(0,2), warmth=files.preferences.getInt("warmth",2).coerceIn(0,4),brightnessSet=files.preferences.getBoolean("brightnessSet",false),contrast=files.preferences.getInt("contrast",1).coerceIn(0,2),shelfRecent=files.preferences.getBoolean("shelfRecent",false),ambientEnabled=files.preferences.getBoolean("ambient",true),focus=files.preferences.getBoolean("focus",false))
+        dark = files.preferences.getBoolean("dark",false), lightStep = files.preferences.getInt("light",1).coerceIn(0,2), warmth=files.preferences.getInt("warmth",2).coerceIn(0,5),brightnessSet=files.preferences.getBoolean("brightnessSet",false),contrast=files.preferences.getInt("contrast",1).coerceIn(0,2),shelfRecent=files.preferences.getBoolean("shelfRecent",false),ambientEnabled=files.preferences.getBoolean("ambient",true),focus=files.preferences.getBoolean("focus",false))
     private var response = InkResponse(logical)
     private var material: InkMaterial? = null
     private var focusSnapshot:Bitmap?=null
@@ -303,7 +303,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 MenuRow(t("白瓷","Porcelain"),controls=listOf(control(if(frame.preset==0)t("已选","Selected")else t("选择","Choose"),MenuAction.PRESET,0))),
                 MenuRow(t("护眼","Gentle"),controls=listOf(control(if(frame.preset==1)t("已选","Selected")else t("选择","Choose"),MenuAction.PRESET,1))),
                 MenuRow(t("类纸","Paper"),controls=listOf(control(if(frame.preset==2)t("已选","Selected")else t("选择","Choose"),MenuAction.PRESET,2)))))
-            add(MenuRow(t("冷暖","Tone"),controls=listOf(t("冷","Cool"),t("微冷","Cooler"),t("中性","Neutral"),t("微暖","Warmer"),t("暖","Warm")).mapIndexed {i,title->control(title,MenuAction.WARMTH,i,i==frame.warmth)},controlsWidth=300f))
+            add(MenuRow(t("冷暖","Tone"),controls=listOf(t("冷","Cool"),t("偏冷","Cooler"),t("中性","Neutral"),t("偏暖","Warmer"),t("暖","Warm"),t("更暖","Warmest")).mapIndexed {i,title->control(title,MenuAction.WARMTH,i,i==frame.warmth)},controlsWidth=360f))
             add(MenuRow(t("屏幕亮度","Brightness"),controls=listOf(control(t("低","Low"),MenuAction.LIGHT,0,frame.brightnessSet&&frame.lightStep==0),control(t("中","Mid"),MenuAction.LIGHT,1,frame.brightnessSet&&frame.lightStep==1),control(t("高","High"),MenuAction.LIGHT,2,frame.brightnessSet&&frame.lightStep==2),control(t("系统","Auto"),MenuAction.LIGHT,-1,!frame.brightnessSet))))
             add(MenuRow(t("对比度","Contrast"),controls=listOf(t("低","Low"),t("中","Mid"),t("高","High")).mapIndexed {i,title->control(title,MenuAction.CONTRAST,i,frame.contrast==i)}))
             add(MenuRow(t("夜间模式","Night light"),controls=listOf(control(if(frame.night)t("开启","On")else t("关闭","Off"),MenuAction.NIGHT))))
@@ -363,6 +363,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 add(MenuRow("Paperis ${BuildConfig.VERSION_NAME}"))
             })
             MenuPage.SETTINGS -> MenuModel(t("设置", "Settings"),true,buildList {
+                add(MenuRow(t("冷暖","Tone"),controls=listOf(t("冷","Cool"),t("偏冷","Cooler"),t("中性","Neutral"),t("偏暖","Warmer"),t("暖","Warm"),t("更暖","Warmest")).mapIndexed {i,title->control(title,MenuAction.WARMTH,i,i==frame.warmth)},controlsWidth=360f))
                 add(MenuRow(t("语言", "Language"),controls=listOf(control("中文",MenuAction.LANGUAGE,0,!frame.english),control("English",MenuAction.LANGUAGE,1,frame.english))))
                 add(item(t("＋ 导入书籍", "+ Import books"),MenuAction.IMPORT))
                 add(item(t("检查更新", "Check for updates"),MenuAction.CHECK_UPDATE))
@@ -528,7 +529,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuAction.NIGHT -> { request(logical.copy(night=!logical.night),true); savePreferences() }
             MenuAction.DARK -> { request(logical.copy(dark=!logical.dark),true); savePreferences() }
             MenuAction.LIGHT -> { request(logical.copy(lightStep=command.value.coerceIn(0,2),brightnessSet=command.value>=0),true); applyBrightness();savePreferences() }
-            MenuAction.WARMTH -> {request(logical.copy(warmth=command.value.coerceIn(0,4)),true);savePreferences()}
+            MenuAction.WARMTH -> {request(logical.copy(warmth=command.value.coerceIn(0,5)),true);savePreferences()}
             MenuAction.CONTRAST -> {request(logical.copy(contrast=command.value.coerceIn(0,2)),true);savePreferences()}
             MenuAction.CHECK_UPDATE -> { openMenu(MenuPage.UPDATE);checkUpdate() }
             MenuAction.DOWNLOAD_UPDATE -> updateAction("download")

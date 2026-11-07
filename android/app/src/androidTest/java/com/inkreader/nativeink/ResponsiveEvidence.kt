@@ -58,7 +58,7 @@ internal class ResponsiveEvidence(private val host:Instrumentation,private val a
         fun controls(names:List<String>,action:MenuAction)=names.mapIndexed {i,s->MenuControl(s,MenuCommand(action,i),i==2)}
         return MenuModel(t("阅读预设","Reading presets"),true,listOf(
             MenuRow(t("白瓷","Porcelain"),controls=controls(listOf(t("选择","Choose")),MenuAction.PRESET)),
-            MenuRow(t("冷暖","Tone"),controls=controls(if(english)listOf("Cool","Cooler","Neutral","Warmer","Warm")else listOf("冷","微冷","中性","微暖","暖"),MenuAction.WARMTH),controlsWidth=300f),
+            MenuRow(t("冷暖","Tone"),controls=controls(if(english)listOf("Cool","Cooler","Neutral","Warmer","Warm","Warmest")else listOf("冷","偏冷","中性","偏暖","暖","更暖"),MenuAction.WARMTH),controlsWidth=300f),
             MenuRow(t("屏幕亮度","Brightness"),controls=controls(if(english)listOf("Low","Mid","High","Auto")else listOf("低","中","高","系统"),MenuAction.LIGHT)),
             MenuRow(t("对比度","Contrast"),controls=controls(if(english)listOf("Low","Mid","High")else listOf("低","中","高"),MenuAction.CONTRAST)),
             MenuRow(t("夜间模式","Night light"),controls=controls(listOf(t("开启","On")),MenuAction.NIGHT)),
@@ -280,7 +280,7 @@ internal class ResponsiveEvidence(private val host:Instrumentation,private val a
                     val m=activity.inkView.currentMenuLayout
                     val tone=m.hitRegions.filter {it.command?.action==MenuAction.WARMTH}
                     verify("Phone presets retain compact grouped controls",m.bounds.width()<=288.1f&&m.bounds.height()<=400f)
-                    verify("Five phone tone choices fit on one line",tone.size==5&&tone.map {it.bounds.centerY()}.distinct().size==1)
+                    verify("Six phone tone choices fit on one line",tone.size==6&&tone.map {it.bounds.centerY()}.distinct().size==1)
                 }
                 if(index in setOf(0,1,4,7,8,11))capture("$index-presets").recycle()
                 ui {activity.inkView.toggleTools();activity.inkView.showFiles()};settle()

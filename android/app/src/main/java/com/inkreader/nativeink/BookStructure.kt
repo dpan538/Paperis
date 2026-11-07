@@ -5,10 +5,11 @@ import org.json.JSONObject
 
 internal data class BookBlock(val start:Int,val end:Int,val kind:String="body",val level:Int=0,val image:String="",val page:Int=-1,val origin:String="")
 internal data class BookChapter(val title:String,val offset:Int,val level:Int=1,val source:String="generated")
-internal data class BookStructure(val blocks:List<BookBlock>,val chapters:List<BookChapter>,val directorySource:String="generated",val repairedBreaks:Int=0,val ocrPages:Int=0,val uncertainLines:Int=0,val comic:Boolean=false) {
+internal data class BookStructure(val blocks:List<BookBlock>,val chapters:List<BookChapter>,val directorySource:String="generated",val repairedBreaks:Int=0,val ocrPages:Int=0,val uncertainLines:Int=0,val comic:Boolean=false,val pageLabels:Map<Int,String> = emptyMap()) {
     fun json()=JSONObject().put("schema",SCHEMA).put("revision",REVISION).put("source",directorySource).put("repairedBreaks",repairedBreaks).put("ocrPages",ocrPages).put("uncertainLines",uncertainLines).put("comic",comic)
         .put("blocks",JSONArray().apply { blocks.forEach { put(JSONArray(listOf(it.start,it.end,it.kind,it.level,it.image,it.page,it.origin))) } })
         .put("chapters",JSONArray().apply { chapters.forEach { put(JSONArray(listOf(it.title,it.offset,it.level,it.source))) } })
+        .put("pageLabels",JSONObject().apply { pageLabels.forEach {(page,label)->put(page.toString(),label)} })
     companion object {
         const val SCHEMA=2
         const val REVISION=4
@@ -19,7 +20,8 @@ internal data class BookStructure(val blocks:List<BookBlock>,val chapters:List<B
             require(blocks.all { it.start>=0 && it.end<=text.length && it.start<it.end })
             val chapters=(0 until c.length()).map {c.getJSONArray(it).let {a->BookChapter(a.getString(0),a.getInt(1),a.getInt(2),a.getString(3))}}
             require(chapters.all {it.offset in text.indices})
-            return BookStructure(blocks,chapters,o.optString("source","generated"),o.optInt("repairedBreaks"),o.optInt("ocrPages"),o.optInt("uncertainLines"),o.optBoolean("comic",false))
+            val labels=o.optJSONObject("pageLabels")?.let {l->l.keys().asSequence().associate {it.toInt() to l.optString(it)}.filterValues {it.isNotBlank()}}.orEmpty()
+            return BookStructure(blocks,chapters,o.optString("source","generated"),o.optInt("repairedBreaks"),o.optInt("ocrPages"),o.optInt("uncertainLines"),o.optBoolean("comic",false),labels)
         }
         fun infer(text:String):BookStructure {
             val blocks=mutableListOf<BookBlock>();var at=0
@@ -72,16 +74,20 @@ internal class BookAssembly {
     var ocrPages=0
     var uncertainLines=0
     var comic=false
+    /** Authoritative source chapters (e.g. a native PDF outline); block indices before title insertion. */
+    val outline=mutableListOf<Triple<String,Pair<Int,Int>,String>>()
+    val pageLabels=mutableMapOf<Int,String>()
+    var outlineAuthoritative=false
     fun add(block:SourceBlock) { if(block.text.isNotBlank())blocks+=block }
-    fun finish(title:String,format:String,nav:List<Triple<String,Pair<Int,Int>,String>> = emptyList(),authoritative:Boolean=false):ParsedBook {
+    fun finish(title:String,format:String,nav:List<Triple<String,Pair<Int,Int>,String>> = outline,authoritative:Boolean = outlineAuthoritative):ParsedBook {
         val repaired=BookTextRepair.english(blocks.map {it.text})
-        blocks.forEachIndexed {i,b->if(b.kind !in setOf("verse","image","quote","caption"))b.text=repaired[i]}
+        blocks.forEachIndexed {i,b->if(b.kind !in setOf("verse","image","plate","quote","caption"))b.text=repaired[i]}
         blocks.filter {it.kind=="body"}.forEach {b->
             val level=ChapterScanner.level(b.text)
             if(level>0){b.kind="heading";b.level=level}else if(TextSemantics.metadata(b.text))b.kind="metadata"
         }
-        val inserted=!comic&&blocks.firstOrNull()?.text!=title
-        if(inserted) blocks.add(0,SourceBlock(title,"heading",1,origin="paperis:book-title")) else if(!comic&&blocks.isNotEmpty()) { blocks[0].kind="heading";blocks[0].level=1 }
+        val inserted=!comic&&blocks.firstOrNull()?.text!=title&&blocks.firstOrNull()?.kind!="plate"
+        if(inserted) blocks.add(0,SourceBlock(title,"heading",1,origin="paperis:book-title")) else if(!comic&&blocks.isNotEmpty()&&blocks[0].kind !in setOf("plate","image","verse")) { blocks[0].kind="heading";blocks[0].level=1 }
         val combined=mutableMapOf<Int,String>()
         if(nav.isEmpty())for((i,b) in blocks.withIndex()) {
             val key=ChapterScanner.key(b.text)
@@ -106,10 +112,14 @@ internal class BookAssembly {
             val label=combined[i]?:text.substring(b.start,b.end)
             val matter=ChapterScanner.level(label)>0&&!Regex("^(?:第|卷|篇|Chapter|Part|Book)",RegexOption.IGNORE_CASE).containsMatchIn(label.trim())
             val outsideSourceRange=b.start<sourceFirst||b.start>sourceLast
-            val supplementary=if(authoritative)matter&&outsideSourceRange else nav.isEmpty() || b.level<=2 && label.any {it.isLetter()} && !label.trim().matches(Regex("[一二三四五六七八九十百千零〇0-9IVXLCDMivxlcdm]+"))
+            val supplementary=if(authoritative)false else nav.isEmpty() || b.level<=2 && label.any {it.isLetter()} && !label.trim().matches(Regex("[一二三四五六七八九十百千零〇0-9IVXLCDMivxlcdm]+"))
             if(supplementary&&b.kind=="heading"&&b.start>0&&(label.any {it.isLetter()}||blocks[i].explicitHeading&&label.any {it.isDigit()})&&ChapterScanner.key(label)!=ChapterScanner.key(title)&&chapters.none {it.offset==b.start})chapters+=BookChapter(label,b.start,b.level)
         }
-        val source=if(chapters.any {it.source=="epub"})if(chapters.any {it.source=="generated"})"mixed" else "epub" else "generated"
-        return ParsedBook(title,text.toString(),format,BookStructure(ranges,chapters.distinctBy {it.offset to ChapterScanner.key(it.title)}.sortedBy {it.offset},source,repairedBreaks,ocrPages,uncertainLines,comic),images)
+        val source=when {
+            chapters.any {it.source=="epub"} -> if(chapters.any {it.source=="generated"})"mixed" else "epub"
+            chapters.any {it.source=="pdf"} -> if(chapters.any {it.source=="generated"})"mixed" else "pdf"
+            else -> "generated"
+        }
+        return ParsedBook(title,text.toString(),format,BookStructure(ranges,chapters.distinctBy {it.offset to ChapterScanner.key(it.title)}.sortedBy {it.offset},source,repairedBreaks,ocrPages,uncertainLines,comic,pageLabels.toMap()),images)
     }
 }

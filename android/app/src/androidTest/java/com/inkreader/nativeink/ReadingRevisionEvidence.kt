@@ -33,12 +33,12 @@ internal class ReadingRevisionEvidence(private val host:Instrumentation) {
             activity=startActivitySync(Intent(targetContext,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity
             waitFor("window"){ui {activity.inkView.pageCount>0}}
             ui {val v=activity.inkView;v.openBook(v.files.demo,v.files.text(v.files.demo));v.openMenu(MenuPage.ROOT)};settle()
-            val order=listOf("文件","目录与进度","＋ 导入书籍","阅读排版","阅读预设","屏幕与刷新","书签","设置")
-            val labels=actions().map {if(it.startsWith("书签 ·"))"书签" else it}
+            val order=listOf("定位 · 目录与进度","版式 · 文字与版面","显示 · 纸与光","标记 · 书签","更多")
+            val labels=actions().map {if(it.startsWith("标记 · 书签"))"标记 · 书签" else it}
             verify("Root menu follows the reading workflow and keeps light/polarity out of the root: $labels",labels.filter {it in order}==order&&labels.none {it.startsWith("夜间模式")||it.startsWith("深色模式")})
-            val root=ui {activity.inkView.menuBounds};click("设置")
-            verify("Settings keeps the exact root panel dimensions",ui {activity.inkView.menuBounds==root})
-            click("返回阅读菜单");click("阅读预设");capture("01-reading-presets").recycle()
+            val root=ui {activity.inkView.menuBounds};click("更多");click("设置")
+            verify("Settings keeps the shared ink panel width and side",ui {activity.inkView.menuBounds.width()==root.width()&&kotlin.math.abs(activity.inkView.menuBounds.left-root.left)<.5f})
+            click("返回阅读菜单");click("显示 · 纸与光");capture("01-reading-presets").recycle()
             verify("Presets combines three surfaces, five tones, three brightness levels, night and dark",actions().count {it.startsWith("冷暖 ")}==5&&actions().containsAll(listOf("屏幕亮度 低","屏幕亮度 中","屏幕亮度 高","夜间模式 关闭","深色模式 关闭")))
             val tones=mutableListOf<Int>()
             for((step,name) in listOf("冷","微冷","中性","微暖","暖").withIndex()) {

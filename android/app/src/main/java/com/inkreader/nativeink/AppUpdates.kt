@@ -21,12 +21,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.net.ssl.HttpsURLConnection
 
 internal enum class UpdatePhase { IDLE, CHECKING, AVAILABLE, DOWNLOADING, VERIFYING, READY, CURRENT, ERROR }
-internal data class UpdateUi(val phase:UpdatePhase=UpdatePhase.IDLE,val message:String="",val detail:String="",val progress:Int=0,val cached:Boolean=false)
+internal data class UpdateUi(val phase:UpdatePhase=UpdatePhase.IDLE,val message:String="",val detail:String="",val progress:Int=0,val cached:Boolean=false,val channel:String="",val notes:String="")
 
-internal data class UpdatePackage(val versionCode:Long,val versionName:String,val sha256:String,val certificate:String,val bytes:Long,val url:String,val notes:String) {
-    fun json()=JSONObject().put("versionCode",versionCode).put("versionName",versionName).put("sha256",sha256).put("certificate",certificate).put("bytes",bytes).put("url",url).put("notes",notes)
+internal data class UpdatePackage(val versionCode:Long,val versionName:String,val sha256:String,val certificate:String,val bytes:Long,val url:String,val notes:String,val channel:String="stable") {
+    val beta get()=channel=="beta"
+    fun json()=JSONObject().put("versionCode",versionCode).put("versionName",versionName).put("sha256",sha256).put("certificate",certificate).put("bytes",bytes).put("url",url).put("notes",notes).put("channel",channel)
     companion object {
-        fun read(j:JSONObject)=UpdatePackage(j.getLong("versionCode"),j.getString("versionName"),j.getString("sha256"),j.getString("certificate"),j.getLong("bytes"),j.getString("url"),j.optString("notes"))
+        fun read(j:JSONObject)=UpdatePackage(j.getLong("versionCode"),j.getString("versionName"),j.getString("sha256"),j.getString("certificate"),j.getLong("bytes"),j.getString("url"),j.optString("notes"),j.optString("channel","stable").let {if(it=="beta")"beta" else "stable"})
     }
 }
 
@@ -52,7 +53,7 @@ internal class AppUpdates(private val context:Context,private val changed:(Updat
             val item=UpdatePackage.read(JSONObject(pending.readText()))
             validate(item)
             if(item.versionCode<=BuildConfig.VERSION_CODE){pending.delete();file(item).delete()}
-            else {candidate=item;if(file(item).exists()){try{verify(item,file(item))}catch(error:Exception){file(item).delete();throw error};reusedPackages++;publish(UpdateUi(UpdatePhase.READY,"Verified package retained",item.versionName,cached=true))}else publish(UpdateUi(UpdatePhase.AVAILABLE,"Update available",item.versionName))}
+            else {candidate=item;if(file(item).exists()){try{verify(item,file(item))}catch(error:Exception){file(item).delete();throw error};reusedPackages++;publish(UpdateUi(UpdatePhase.READY,"Verified package retained",item.versionName,cached=true,channel=item.channel,notes=item.notes))}else publish(UpdateUi(UpdatePhase.AVAILABLE,"Update available",item.versionName,channel=item.channel,notes=item.notes))}
         }.onFailure{pending.delete();publish(UpdateUi(UpdatePhase.ERROR,"Saved update could not be verified",it.message.orEmpty()))}
     }}
 
@@ -88,23 +89,28 @@ internal class AppUpdates(private val context:Context,private val changed:(Updat
             require(j.getInt("schemaVersion")==1&&j.getString("packageName")==BuildConfig.APPLICATION_ID){"Unsupported update identity"}
             val apkName=j.getString("apk");require(apkName.matches(Regex("[A-Za-z0-9._-]+\\.apk"))){"Invalid APK name"}
             val apk=list.firstOrNull{it.getString("name")==apkName}?:continue
-            val item=UpdatePackage(j.getLong("versionCode"),j.getString("versionName"),j.getString("sha256").lowercase(),j.getString("certificateSha256").lowercase(),apk.getLong("size"),apk.getString("browser_download_url"),release.optString("body").take(2000))
+            val channel=j.optString("channel").lowercase().let {if(it=="beta"||it=="stable")it else if(release.optBoolean("prerelease"))"beta" else "stable"}
+            // The manifest carries the short, reader-facing core change list; never paste the
+            // GitHub release body into the app.
+            val highlights=j.optJSONArray("highlights")?.let {array->(0 until array.length()).mapNotNull {array.optString(it).trim().takeIf {text->text.isNotEmpty()}}.take(5)}.orEmpty()
+            val notes=highlights.joinToString("\n").take(600)
+            val item=UpdatePackage(j.getLong("versionCode"),j.getString("versionName"),j.getString("sha256").lowercase(),j.getString("certificateSha256").lowercase(),apk.getLong("size"),apk.getString("browser_download_url"),notes,channel)
             validate(item);choices.add(item)
         }
         val best=choices.filter{it.versionCode>BuildConfig.VERSION_CODE}.maxByOrNull{it.versionCode}
         if(best==null){publish(UpdateUi(UpdatePhase.CURRENT,if(choices.isEmpty())"No APK release is published yet" else "No newer version",BuildConfig.VERSION_NAME));return@task}
         candidate=best;persist(best)
         if(file(best).exists()){
-            if(runCatching{verify(best,file(best))}.isSuccess){reusedPackages++;publish(UpdateUi(UpdatePhase.READY,"Verified package retained",best.versionName,cached=true))}
+            if(runCatching{verify(best,file(best))}.isSuccess){reusedPackages++;publish(UpdateUi(UpdatePhase.READY,"Verified package retained",best.versionName,cached=true,channel=best.channel,notes=best.notes))}
             else {file(best).delete();publish(UpdateUi(UpdatePhase.AVAILABLE,"Cached package was invalid; download again",best.versionName))}
-        }else publish(UpdateUi(UpdatePhase.AVAILABLE,"Update available",best.versionName+" · "+"%.1f MB".format(best.bytes/1e6)))
+        }else publish(UpdateUi(UpdatePhase.AVAILABLE,"Update available",best.versionName+" · "+"%.1f MB".format(best.bytes/1e6),channel=best.channel,notes=best.notes))
     }}
 
     fun download(){val item=candidate?:return;task {
         validate(item);persist(item)
         val target=file(item)
         if(target.exists()){
-            if(runCatching{verify(item,target)}.isSuccess){reusedPackages++;publish(UpdateUi(UpdatePhase.READY,"Verified package retained",item.versionName,cached=true));return@task}
+            if(runCatching{verify(item,target)}.isSuccess){reusedPackages++;publish(UpdateUi(UpdatePhase.READY,"Verified package retained",item.versionName,cached=true,channel=item.channel,notes=item.notes));return@task}
             target.delete()
         }
         val part=File(target.path+".part")

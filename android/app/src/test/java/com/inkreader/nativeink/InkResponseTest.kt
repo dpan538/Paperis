@@ -15,7 +15,9 @@ class InkResponseTest {
             r.advance(100+duration);assertNull(r.active);assertEquals(1,r.displayed)
         }
         assertTrue(RefreshPolicy.duration(0,RefreshPolicy.Scene.MENU)<RefreshPolicy.duration(0,RefreshPolicy.Scene.PAGE))
-        assertTrue(RefreshPolicy.duration(2,RefreshPolicy.Scene.PAGE)<RefreshPolicy.duration(1,RefreshPolicy.Scene.PAGE))
+        // Page turns are a fixed 220 ms ink refresh independent of the reading refresh mode.
+        for(mode in 0..2) assertEquals(220L,RefreshPolicy.duration(mode,RefreshPolicy.Scene.PAGE))
+        assertTrue(RefreshPolicy.duration(0,RefreshPolicy.Scene.LAYOUT)>RefreshPolicy.duration(0,RefreshPolicy.Scene.PAGE))
     }
     @Test fun changingModeKeepsInFlightTimingAndLatestSurfaceTarget() {
         val r=InkResponse(0)

@@ -59,9 +59,9 @@ internal object ReflowGuard {
             }
         }
         // Do not replace an authoritative EPUB directory with every short line in the book.
-        val hasSource=book.structure.chapters.any {it.source=="epub"}
-        val firstSource=book.structure.chapters.filter {it.source=="epub"}.minOfOrNull {it.offset}?:0
-        val lastSource=book.structure.chapters.filter {it.source=="epub"}.maxOfOrNull {it.offset}?:Int.MAX_VALUE
+        val hasSource=book.structure.chapters.any {it.source in setOf("epub","pdf")}
+        val firstSource=book.structure.chapters.filter {it.source in setOf("epub","pdf")}.minOfOrNull {it.offset}?:0
+        val lastSource=book.structure.chapters.filter {it.source in setOf("epub","pdf")}.maxOfOrNull {it.offset}?:Int.MAX_VALUE
         blocks.forEachIndexed {i,b->
             if(b.start<0||b.end>text.length||b.start>=b.end)return@forEachIndexed
             val value=text.substring(b.start,b.end)
@@ -89,6 +89,8 @@ internal object ReflowGuard {
                 }}
                 for(line in 0 until layout.layout.lineCount)if(layout.layout.getLineLeft(line)<-.5f||layout.layout.getLineRight(line)>layout.columnWidth+.5f) {
                     val at=layout.layout.getLineStart(line);val block=blocks.indexOfFirst {at in it.start until it.end}
+                    // A plate deliberately spans the full spread to keep a cover/art page as one page.
+                    if(blocks.getOrNull(block)?.kind=="plate")continue
                     found+=BookDiagnostics.Finding("INVALID_HORIZONTAL_OVERFLOW",block,at,layout.pageForOffset(at),line,origin=blocks.getOrNull(block)?.origin.orEmpty())
                 }
                 issues+=found.map {Issue(it,profile.name)}
@@ -147,7 +149,7 @@ internal object ReflowGuard {
         }
         return runCatching {
             val expected=applyEdits(before,repair.sourceEdits)
-            expected.text==repair.book.text&&expected.structure.chapters.filter {it.source=="epub"}==repair.book.structure.chapters.filter {it.source=="epub"}
+            expected.text==repair.book.text&&expected.structure.chapters.filter {it.source in setOf("epub","pdf")}==repair.book.structure.chapters.filter {it.source in setOf("epub","pdf")}
         }.getOrDefault(false)
     }
 
@@ -211,14 +213,14 @@ internal object ReflowGuard {
                 if(matches.size==1) {chapters[index]=chapter.copy(offset=matches.single().start);events+=JSONObject().put("rule","unique-generated-chapter-destination").put("beforeOffset",chapter.offset).put("afterOffset",matches.single().start)}
             }
         }
-        val hasSource=chapters.any {it.source=="epub"};val sourceFirst=chapters.filter {it.source=="epub"}.minOfOrNull {it.offset}?:0;val sourceLast=chapters.filter {it.source=="epub"}.maxOfOrNull {it.offset}?:Int.MAX_VALUE
+        val hasSource=chapters.any {it.source in setOf("epub","pdf")};val sourceFirst=chapters.filter {it.source in setOf("epub","pdf")}.minOfOrNull {it.offset}?:0;val sourceLast=chapters.filter {it.source in setOf("epub","pdf")}.maxOfOrNull {it.offset}?:Int.MAX_VALUE
         for(b in changedBlocks)if(b.kind=="heading"&&b.start>0&&chapters.none {it.offset==b.start}) {
             val title=changed.text.substring(b.start,b.end);val level=ChapterScanner.level(title)
             if(level>0&&ChapterScanner.key(title)!=ChapterScanner.key(book.title)&&(!hasSource||b.start<sourceFirst||b.start>sourceLast)&&(!hasSource||!Regex("^(?:第|卷|篇|Chapter|Part|Book)",RegexOption.IGNORE_CASE).containsMatchIn(title.trim()))) {
                 chapters+=BookChapter(title,b.start,level);events+=JSONObject().put("rule","missing-reliable-chapter").put("offset",b.start)
             }
         }
-        val source=if(chapters.any {it.source=="epub"})if(chapters.any {it.source=="generated"})"mixed" else "epub" else "generated"
+        val source=if(chapters.any {it.source in setOf("epub","pdf")})if(chapters.any {it.source=="generated"})"mixed" else if(chapters.any {it.source=="pdf"})"pdf" else "epub" else "generated"
         return Repair(changed.copy(structure=changed.structure.copy(chapters=chapters.sortedBy {it.offset},directorySource=source)),events,edits)
     }
 

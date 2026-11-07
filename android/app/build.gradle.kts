@@ -11,8 +11,8 @@ android {
         ndk { abiFilters += "arm64-v8a" }
         minSdk = 33
         targetSdk = 36
-        versionCode = providers.gradleProperty("paperisVersionCode").orNull?.toInt() ?: 19
-        versionName = providers.gradleProperty("paperisVersionName").getOrElse("1.0.1")
+        versionCode = providers.gradleProperty("paperisVersionCode").orNull?.toInt() ?: 20
+        versionName = providers.gradleProperty("paperisVersionName").getOrElse("1.0.3-preview")
         testInstrumentationRunner = "com.inkreader.nativeink.InkEvidence"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
@@ -26,6 +26,7 @@ android {
 }
 kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
 dependencies {
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.23.2")
     implementation("androidx.core:core:1.17.0")

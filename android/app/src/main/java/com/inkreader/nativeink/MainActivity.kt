@@ -36,7 +36,7 @@ class MainActivity : Activity() {
         readerFeedback=ReaderFeedback(applicationContext) { feedbackDialog?.refresh() }
         inkView = InkView(this, ::chooseFiles, ::chooseFont, ::checkUpdates, ::openExternal, ::openFeedback, ::reprocess, ::storage, ::originalPage, ::updateAction, ::attachOriginal, ::repairOpenedBook, ::fileAction)
         appUpdates=AppUpdates(applicationContext) { value ->
-            inkView.updateStatus(value,appUpdates.candidate?.versionName.orEmpty())
+            inkView.updateStatus(value,appUpdates.candidate?.versionName.orEmpty(),appUpdates.candidate?.channel.orEmpty(),appUpdates.candidate?.notes.orEmpty())
             if(value.phase==UpdatePhase.ERROR)installOnReady=false
             if(value.phase==UpdatePhase.READY&&installOnReady) {installOnReady=false;appUpdates.install(this)}
         }
@@ -45,7 +45,7 @@ class MainActivity : Activity() {
         readingOrientation.apply()
         fullscreen()
         onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
-            if (!inkView.backFromTools()) { if (!inkView.libraryOpen) inkView.showFiles() else finish() }
+            if (!inkView.backFromTools() && !inkView.backInShelf()) { if (!inkView.libraryOpen) inkView.showFiles() else finish() }
         }
         LibraryWork.observer={notice,busy->if(!isDestroyed&&visible){
             applyScreenAwake()
@@ -128,7 +128,7 @@ class MainActivity : Activity() {
             localTask=true;inkView.showFiles(inkView.text("正在恢复原目录与插图…","Restoring source contents and images…"),true)
             imports.execute {
                 val result=runCatching {inkView.files.attachOriginal(id,uri)}
-                runOnUiThread {if(!isDestroyed){localTask=false;result.onSuccess {inkView.reloadReading()}.onFailure {inkView.showFiles();android.app.AlertDialog.Builder(this).setMessage(ReaderErrors.message(it.message,inkView.english)).setPositiveButton(android.R.string.ok,null).show()}}}
+                runOnUiThread {if(!isDestroyed){localTask=false;result.onSuccess {inkView.reloadReading()}.onFailure {val message=ReaderErrors.message(it.message,inkView.english);inkView.showFiles(message);android.app.AlertDialog.Builder(this).setMessage(message).setPositiveButton(android.R.string.ok,null).show()}}}
             };return
         }
         if(requestCode==14) {
@@ -153,7 +153,7 @@ class MainActivity : Activity() {
     }
     internal fun importUris(uris:List<Uri>) {
         if(importing)return
-        if(uris.size>100){inkView.showFiles("一次最多导入 100 个文件");return}
+        if(uris.size>100){inkView.showFiles(inkView.text("一次最多导入 100 个文件","At most 100 files can be imported at once"));return}
         startImport(uris.map {it to ""})
     }
     private fun startImport(items:List<Pair<Uri,String>>) {
@@ -212,11 +212,14 @@ class MainActivity : Activity() {
         if(action=="reprocess") {
             if(id!="sample")startWork(org.json.JSONObject().put("kind","reflow").put("id",id).put("ocr",false))
         } else if(action=="delete") {
+            val title=inkView.files.get(id)?.title.orEmpty()
             localTask=true;inkView.showFiles(inkView.text("正在删除…","Deleting…"),true)
             imports.execute {
                 val result=runCatching {inkView.files.delete(id);LibraryWork.discardDeletedBook(applicationContext,id)}
-                runOnUiThread {if(!isDestroyed){localTask=false;inkView.showFiles();applyScreenAwake()
-                    result.onFailure {android.app.AlertDialog.Builder(this).setTitle(inkView.text("未能删除","Could not delete book")).setMessage(ReaderErrors.message(it.message,inkView.english)).setPositiveButton(android.R.string.ok,null).show()}
+                runOnUiThread {if(!isDestroyed){localTask=false
+                    result.onSuccess {inkView.showFiles(inkView.text("已删除《$title》","Deleted $title"))}
+                        .onFailure {inkView.showFiles();android.app.AlertDialog.Builder(this).setTitle(inkView.text("未能删除","Could not delete book")).setMessage(ReaderErrors.message(it.message,inkView.english)).setPositiveButton(android.R.string.ok,null).show()}
+                    applyScreenAwake()
                 }}
             }
         }
@@ -284,11 +287,21 @@ class MainActivity : Activity() {
             }
         }
     }
+    override fun onTrimMemory(level: Int) { super.onTrimMemory(level);if(::inkView.isInitialized)inkView.trimMemory() }
     override fun onDestroy() { if(::readingOrientation.isInitialized)readingOrientation.close();LibraryWork.observer=null;feedbackDialog?.dismiss();if(::readerFeedback.isInitialized)readerFeedback.close();imports.shutdown();if(::appUpdates.isInitialized)appUpdates.close(); super.onDestroy() }
 
-    private fun fullscreen() {
+    internal fun applyFocus(enabled:Boolean) {
         window.insetsController?.apply {
-            show(WindowInsets.Type.statusBars())
+            if(enabled) hide(WindowInsets.Type.statusBars()) else show(WindowInsets.Type.statusBars())
+            setSystemBarsAppearance(if(::inkView.isInitialized&&inkView.darkEnabled)0 else WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS)
+        }
+        fullscreen()
+    }
+
+    private fun fullscreen() {
+        val focus=::inkView.isInitialized&&inkView.focusMode
+        window.insetsController?.apply {
+            if(focus) hide(WindowInsets.Type.statusBars()) else show(WindowInsets.Type.statusBars())
             hide(WindowInsets.Type.navigationBars())
             setSystemBarsAppearance(if(::inkView.isInitialized&&inkView.darkEnabled)0 else WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS)
             systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE

@@ -77,6 +77,7 @@ class InkEvidence : Instrumentation() {
         if(extraSuite=="reflow-corpus") {ReflowGuardEvidence(this).runCorpus();return}
         if(extraSuite=="reflow-guard") {ReflowGuardEvidence(this).run();return}
         if(extraSuite=="file-actions") {FileActionsEvidence(this).run();return}
+        if(extraSuite=="physicality") {PhysicalityEvidence(this).run();return}
         if(extraSuite=="responsive300") { ResponsiveEvidence(this,evidenceArguments).runMatrix(); return }
         if(extraSuite=="responsive-window") { ResponsiveEvidence(this,evidenceArguments).runWindows(); return }
         if(extraSuite=="screen") { ScreenMaterialEvidence(this,evidenceArguments).run(); return }

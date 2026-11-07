@@ -55,7 +55,7 @@ internal class ScreenBehaviorEvidence(private val host:Instrumentation) {
             }
             error("Cannot reveal control: $action")
         }
-        fun screen(){ui {current().inkView.openMenu(MenuPage.ROOT)};settle();touch(MenuAction.SCREEN)}
+        fun screen(){ui {current().inkView.openMenu(MenuPage.ROOT)};settle();touch(MenuAction.DISPLAY)}
         fun awake()=ui {current().window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON!=0}
         fun launch():MainActivity = (startActivitySync(Intent(targetContext,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity).also {activity=it;waitFor("reader ready"){ui {it.inkView.pageCount>0&&it.hasWindowFocus()}};settle()}
         try {

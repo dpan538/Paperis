@@ -12,19 +12,19 @@ import android.text.TextPaint
 import android.text.TextUtils
 import kotlin.math.ceil
 
-internal enum class MenuPage { ROOT, NAVIGATION, BOOKMARKS, LAYOUT, SCREEN, PRESETS, SETTINGS, IMPORT, REFLOW, STORAGE, UPDATE, FILE_ACTIONS, FILE_DELETE }
+internal enum class MenuPage { ROOT, NAVIGATION, BOOKMARKS, LAYOUT, SCREEN, PRESETS, DISPLAY, MORE, SETTINGS, IMPORT, REFLOW, STORAGE, UPDATE, FILE_ACTIONS, FILE_DELETE }
 internal enum class MenuAction {
     BACK, NAVIGATION, BOOKMARKS, LAYOUT, SCREEN, FONT_DOWN, FONT_UP,
     SPACING, COLUMNS, OPTICAL, REFRESH, DRAFT_DOWN, DRAFT_UP, PERCENT, GO,
     CHAPTER, BOOKMARK_TOGGLE, BOOKMARK_GO, BOOKMARK_REMOVE, BOOKMARK_PREVIOUS, BOOKMARK_NEXT,
     FILES, IMPORT, IMPORT_FILES, IMPORT_FOLDER, FONT_FACE, FONT_IMPORT, PRESETS, PRESET,
     SETTINGS, LANGUAGE, CHECK_UPDATE, DOWNLOAD_UPDATE, INSTALL_UPDATE, CANCEL_UPDATE, FEEDBACK, NIGHT, DARK, LIGHT, WARMTH, CONTRAST, REFLOW, REPROCESS, OCR, ORIGINAL, ORIGINAL_FILE, STORAGE, BACKUP_FOLDER, BACKUP, RESTORE, RESUME, PAUSE,
-    REFRESH_MODE, KEEP_AWAKE, DIRECTION, FILE_REPROCESS, FILE_DELETE, FILE_DELETE_CONFIRM, FILE_CANCEL
+    REFRESH_MODE, KEEP_AWAKE, DIRECTION, FILE_REPROCESS, FILE_DELETE, FILE_DELETE_CONFIRM, FILE_CANCEL, SHELF_SORT, AMBIENT, DISPLAY, MORE, FOCUS
 }
 internal data class MenuCommand(val action: MenuAction, val value: Int = 0)
 internal data class MenuControl(val text: String, val command: MenuCommand?, val selected: Boolean = false)
 internal data class MenuRow(val label: String, val command: MenuCommand? = null, val controls: List<MenuControl> = emptyList(), val controlsWidth: Float = 228f)
-internal data class MenuModel(val title: String, val back: Boolean, val rows: List<MenuRow>, val minRows: Int = 0, val scroll: Float = 0f, val anchor:RectF?=null, val showHeader:Boolean=true, val showArrows:Boolean=true)
+internal data class MenuModel(val title: String, val back: Boolean, val rows: List<MenuRow>, val minRows: Int = 0, val scroll: Float = 0f, val anchor:RectF?=null, val showHeader:Boolean=true, val showArrows:Boolean=true, val showClose:Boolean=false)
 
 /** Measured labels, wrapping control grids and touch regions share one layout. */
 internal class ReadingMenu(private val sp: (Float) -> Float = { it }) {
@@ -40,9 +40,13 @@ internal class ReadingMenu(private val sp: (Float) -> Float = { it }) {
     private var rows = emptyList<Row>()
     private var heading: TextRegion? = null
     private var backBounds: RectF? = null
+    private var closeBounds: RectF? = null
+    private var compact = false
     private var contentHeight = 0f
     var maxScroll = 0f; private set
     private var scroll = 0f
+    private var visibleTop = 0f
+    private var visibleBottom = 0f
     internal val textRegions get() = rows.flatMap { it.labels }
     internal val hitRegions get() = rows.flatMap { it.hits }
     internal val headerHeight get() = header
@@ -61,6 +65,7 @@ internal class ReadingMenu(private val sp: (Float) -> Float = { it }) {
     }
     fun place(viewportWidth: Float, viewportHeight: Float, model: MenuModel) {
         val compact=ReaderSizing(viewportWidth,viewportHeight).phone
+        this.compact=compact
         minimumTouchSize=if(compact)36f else 48f
         val unit=if(compact)44f else 64f
         val padding=if(compact)12f else 16f
@@ -70,13 +75,14 @@ internal class ReadingMenu(private val sp: (Float) -> Float = { it }) {
         val controlPad=if(compact)4f else 8f
         val side=(viewportWidth*.0493f).coerceIn(16f,84f)
         val width=minOf(if(!model.showHeader)if(compact)196f else 240f else if(compact)288f else if(model.anchor!=null)320f else 416f,(viewportWidth-side*2).coerceAtLeast(1f))
-        val top=if(model.anchor!=null)12f else if(viewportHeight>=860f)110f else (viewportHeight*.08f).coerceAtLeast(12f)
+        val top=if(model.anchor!=null)12f else if(compact)12f else if(viewportHeight>=860f)110f else (viewportHeight*.08f).coerceAtLeast(12f)
         bounds.set(viewportWidth-side-width,top,viewportWidth-side,top)
         val titleX=bounds.left+if(model.back)if(compact)42f else 52f else labelInset
         val headingSize=if(compact)15f else 18f
         heading=if(model.showHeader)text(model.title,headingSize,titleX,top+if(compact)12f else 18f,bounds.right-titleX-labelInset,90,maxLines=if(model.anchor!=null)2 else Int.MAX_VALUE) else null
         header=heading?.let {maxOf(if(compact)44f else 58f,it.layout.height+if(compact)24f else 32f)}?:0f
         backBounds=if(model.back&&model.showHeader)RectF(bounds.left+8f,top,bounds.left+40f,top+header) else null
+        closeBounds=if(model.showClose&&model.showHeader)RectF(bounds.right-(if(compact)36f else 44f),top,bounds.right-4f,top+header) else null
         val labelSize=if(compact)15f else 21f
         var cursor=0f
         rows=model.rows.map { row ->
@@ -135,9 +141,21 @@ internal class ReadingMenu(private val sp: (Float) -> Float = { it }) {
         scroll=model.scroll.coerceIn(0f,maxScroll)
         model.anchor?.let {anchor->
             val dy=(anchor.centerY()-if(header>0f)header/2 else unit/2).coerceIn(12f,(viewportHeight-height-12f).coerceAtLeast(12f))-top
-            bounds.offset(0f,dy);heading?.bounds?.offset(0f,dy);backBounds?.offset(0f,dy)
+            bounds.offset(0f,dy);heading?.bounds?.offset(0f,dy);backBounds?.offset(0f,dy);closeBounds?.offset(0f,dy)
             rows.forEach {row->row.bounds.offset(0f,dy);row.labels.forEach {it.bounds.offset(0f,dy)};row.hits.forEach {it.bounds.offset(0f,dy)};row.selected.forEach {it.offset(0f,dy)};row.chevron?.offset(0f,dy)}
         }
+        updateVisibleRange()
+    }
+    /** Only whole rows are drawn and hit; a row is never cut through its glyphs. */
+    private fun rowFullyVisible(row:Row):Boolean {
+        val top=row.bounds.top-scroll;val bottom=row.bounds.bottom-scroll
+        return top>=bounds.top+header-.5f && bottom<=bounds.bottom+.5f
+    }
+    private fun updateVisibleRange() {
+        var first=Float.POSITIVE_INFINITY;var last=bounds.top+header
+        rows.forEach {row->if(rowFullyVisible(row)){val top=row.bounds.top-scroll;if(top<first)first=top;val bottom=row.bounds.bottom-scroll;if(bottom>last)last=bottom}}
+        if(first==Float.POSITIVE_INFINITY){visibleTop=bounds.top+header;visibleBottom=bounds.top+header}
+        else {visibleTop=first;visibleBottom=last}
     }
     private fun drawText(c:Canvas,label:TextRegion) {
         c.save();c.translate(label.bounds.left,label.bounds.top);label.layout.draw(c);c.restore()
@@ -148,28 +166,54 @@ internal class ReadingMenu(private val sp: (Float) -> Float = { it }) {
         arrowPath.reset();arrowPath.moveTo(x-dx,y-h);arrowPath.lineTo(x+dx,y);arrowPath.lineTo(x-dx,y+h)
         c.drawPath(arrowPath,arrow)
     }
+    private fun drawClose(c:Canvas) {
+        val area=closeBounds?:return;val inset=if(compact)11f else 14f
+        val x0=area.left+inset;val x1=area.right-inset;val y0=area.centerY()-6f;val y1=area.centerY()+6f
+        c.drawLine(x0,y0,x1,y1,arrow);c.drawLine(x0,y1,x1,y0,arrow)
+    }
+    /** A quiet down cue when more rows exist below the current scroll window. */
+    private fun drawOverflowCue(c:Canvas) {
+        if(scroll>=maxScroll-.5f||visibleBottom<bounds.top+header)return
+        val cx=bounds.centerX();val cy=bounds.bottom-6f
+        c.drawRect(cx-14f,cy-10f,cx+14f,cy+4f,fill)
+        arrowPath.reset();arrowPath.moveTo(cx-5f,cy-3f);arrowPath.lineTo(cx,cy+2f);arrowPath.lineTo(cx+5f,cy-3f)
+        c.drawPath(arrowPath,arrow)
+    }
     fun draw(c: Canvas, model: MenuModel) {
+        updateVisibleRange()
         c.drawRect(bounds,fill);c.drawRect(bounds,rule)
-        heading?.let {drawText(c,it)};backBounds?.let {drawChevron(c,it,false)}
+        heading?.let {drawText(c,it)};backBounds?.let {drawChevron(c,it,false)};closeBounds?.let{drawClose(c)}
         if(header>0f)c.drawLine(bounds.left+20,bounds.top+header,bounds.right-20,bounds.top+header,rule)
-        c.save();c.clipRect(bounds.left,bounds.top+header,bounds.right,bounds.bottom);c.translate(0f,-scroll)
-        rows.forEachIndexed {i,row->
-            row.labels.forEach {drawText(c,it)}
-            row.chevron?.let {drawChevron(c,it,true)}
-            row.selected.forEach {r->c.drawLine(r.centerX()-15,r.bottom-5,r.centerX()+15,r.bottom-5,rule)}
-            if(i<rows.lastIndex)c.drawLine(bounds.left+20,row.bounds.bottom,bounds.right-20,row.bounds.bottom,rule)
+        if(visibleBottom>visibleTop) {
+            c.save();c.clipRect(bounds.left,visibleTop,bounds.right,visibleBottom);c.translate(0f,-scroll)
+            rows.forEachIndexed {i,row->
+                if(!rowFullyVisible(row))return@forEachIndexed
+                row.labels.forEach {drawText(c,it)}
+                row.chevron?.let {drawChevron(c,it,true)}
+                row.selected.forEach {r->c.drawLine(r.centerX()-15,r.bottom-5,r.centerX()+15,r.bottom-5,rule)}
+                if(i<rows.lastIndex&&rowFullyVisible(rows[i+1]))c.drawLine(bounds.left+20,row.bounds.bottom,bounds.right-20,row.bounds.bottom,rule)
+            }
+            c.restore()
         }
-        c.restore()
         if(maxScroll>0f) {
             val travel=(bounds.height()-header-18f).coerceAtLeast(0f)
             val thumb=(travel*(bounds.height()-header)/contentHeight).coerceIn(minOf(24f,travel),travel)
             val y=bounds.top+header+9+(travel-thumb)*scroll/maxScroll
-            c.drawLine(bounds.right-5,y,bounds.right-5,y+thumb,rule)
+            c.drawLine(bounds.right-5,y,bounds.right-4,y+thumb,rule)
+            drawOverflowCue(c)
         }
     }
     fun hit(x: Float, y: Float, model: MenuModel): MenuCommand? {
         if(!bounds.contains(x,y))return null
-        if(y<bounds.top+header)return if(model.back)MenuCommand(MenuAction.BACK) else null
-        return hitRegions.lastOrNull {it.bounds.contains(x,y+scroll)}?.command
+        if(y<bounds.top+header)return when {
+            model.showClose&&closeBounds?.contains(x,y)==true->MenuCommand(MenuAction.BACK)
+            model.back->MenuCommand(MenuAction.BACK)
+            else->null
+        }
+        val row=rows.lastOrNull {row->
+            val top=row.bounds.top-scroll;val bottom=row.bounds.bottom-scroll
+            top>=bounds.top+header-.5f&&bottom<=bounds.bottom+.5f&&y>=top&&y<bottom
+        }?:return null
+        return row.hits.lastOrNull {it.bounds.contains(x,y+scroll)}?.command
     }
 }

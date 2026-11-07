@@ -62,8 +62,8 @@ internal class ReadingExperienceEvidence(private val instrumentation: Instrument
                 uiAutomation.injectInputEvent(event,true);event.recycle()
             }
             settle();capture("01-reading-menu").recycle()
-            click("＋ 导入书籍")
-            verify("Permanent root-menu Import opens a native import panel",ui { activity.inkView.menuPage==MenuPage.IMPORT && activity.inkView.toolsOpen })
+            click("更多");click("＋ 导入书籍")
+            verify("More → Import opens a native import panel",ui { activity.inkView.menuPage==MenuPage.IMPORT && activity.inkView.toolsOpen })
             capture("02-import-panel").recycle()
             click("＋ 从文件选择")
             waitFor("system picker") { uiAutomation.rootInActiveWindow?.packageName?.toString()?.contains("documentsui")==true }
@@ -72,9 +72,9 @@ internal class ReadingExperienceEvidence(private val instrumentation: Instrument
             waitFor("picker cancelled") { uiAutomation.rootInActiveWindow?.packageName?.toString()==targetContext.packageName };settle()
             ui { activity.inkView.openMenu(MenuPage.ROOT) };settle()
             val root=ui { activity.inkView.menuBounds }
-            tap((root.centerX()*2),(root.top+58+7*64+32)*2)
+            click("更多");click("设置")
             verify("Visible Settings row opens its own panel",ui { activity.inkView.menuPage==MenuPage.SETTINGS })
-            verify("Settings uses exactly the root-menu width, height and origin",root==ui { activity.inkView.menuBounds })
+            verify("Settings uses the shared ink-panel width and side",root.width()==ui {activity.inkView.menuBounds.width()}&&kotlin.math.abs(root.left-ui {activity.inkView.menuBounds.left})<.5f)
             capture("03-settings-zh").recycle()
             click("语言 English")
             verify("Language switches the actual native UI and persists",ui { activity.inkView.english } && targetContext.getSharedPreferences("files",0).getBoolean("english",false))
@@ -142,7 +142,7 @@ internal class ReadingExperienceEvidence(private val instrumentation: Instrument
             waitFor("offline response") { ui { activity.inkView.updateState==4 } };settle()
             verify("An update network failure leaves settings usable with retry",ui { activity.inkView.toolsOpen && activity.inkView.menuPage==MenuPage.UPDATE })
             ui {activity.inkView.openMenu(MenuPage.SETTINGS)};settle()
-            click("Language 中文");click("返回阅读菜单");click("阅读预设")
+            click("Language 中文");click("返回阅读菜单");click("显示 · 纸与光")
             click("夜间模式 关闭")
             ui { activity.inkView.toggleTools() };settle()
             val night=capture("05-night-frontlight")

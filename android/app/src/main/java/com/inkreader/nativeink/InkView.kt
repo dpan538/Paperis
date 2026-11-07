@@ -26,8 +26,8 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         val face: Int = 0, val preset: Int = 0, val library: Boolean = false,
         val shelfFolder: String = "", val shelfPage: Int = 0, val notice: String = "", val busy: Boolean = false,
         val english: Boolean = false, val night: Boolean = false, val dark: Boolean = false, val lightStep: Int = 1,
-        val warmth:Int=2,val brightnessSet:Boolean=false,val contrast:Int=1, val menuScroll: Float = 0f, val update:UpdateUi=UpdateUi(),val updateVersion:String="",
-        val refreshMode:Int=0,val readingAwake:Boolean=false,val directionLocked:Boolean=false,val directionAvailable:Boolean=true,val fileTarget:String="") {
+        val warmth:Int=2,val brightnessSet:Boolean=false,val contrast:Int=1, val menuScroll: Float = 0f, val update:UpdateUi=UpdateUi(),val updateVersion:String="",val updateChannel:String="",val updateNotes:String="",
+        val refreshMode:Int=0,val readingAwake:Boolean=false,val directionLocked:Boolean=false,val directionAvailable:Boolean=true,val fileTarget:String="",val shelfRecent:Boolean=false,val ambientEnabled:Boolean=true,val focus:Boolean=false) {
         val appearance get() = InkAppearance(preset,night,dark,lightStep,warmth,contrast,optical)
     }
     internal val files = BookFiles(context)
@@ -37,7 +37,14 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     private var structure=files.structure(entry,book)
     internal val currentStructure get()=structure
     private var customFace = files.customTypeface()
-    private val shelf = FileShelf(::uiSp)
+    private val shelf = FileShelf(::uiSp,progress={files.progress(it)},lastReadId={files.preferences.getString("lastBook",null)},recentFirst={logical.shelfRecent})
+    private val ambientLight = AmbientLight(context) { scene -> onAmbientScene(scene) }
+    private var ambientScene = OpticalTone.INDOOR
+    private var ambientTone = AmbientTone.NEUTRAL
+    private var ambientFrom = AmbientTone.NEUTRAL
+    private var ambientTo = AmbientTone.NEUTRAL
+    private var ambientStart = 0L
+    private val noticeClear = Runnable { if(logical.notice.isNotEmpty())request(logical.copy(notice="")) }
     private var shelfFiles = files.list()
     val libraryOpen get() = logical.library
     internal val currentBookId get() = entry.id
@@ -78,7 +85,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         face = files.preferences.getInt("face",0).coerceIn(0,if(customFace == null) 1 else 2),
         preset = files.preferences.getInt("preset",0).coerceIn(0,2), library = files.preferences.getString("lastBook",null) == null,
         english = files.preferences.getBoolean("english",false), night = files.preferences.getBoolean("night",false),
-        dark = files.preferences.getBoolean("dark",false), lightStep = files.preferences.getInt("light",1).coerceIn(0,2), warmth=files.preferences.getInt("warmth",2).coerceIn(0,4),brightnessSet=files.preferences.getBoolean("brightnessSet",false),contrast=files.preferences.getInt("contrast",1).coerceIn(0,2))
+        dark = files.preferences.getBoolean("dark",false), lightStep = files.preferences.getInt("light",1).coerceIn(0,2), warmth=files.preferences.getInt("warmth",2).coerceIn(0,4),brightnessSet=files.preferences.getBoolean("brightnessSet",false),contrast=files.preferences.getInt("contrast",1).coerceIn(0,2),shelfRecent=files.preferences.getBoolean("shelfRecent",false),ambientEnabled=files.preferences.getBoolean("ambient",true),focus=files.preferences.getBoolean("focus",false))
     private var response = InkResponse(logical)
     private var material: InkMaterial? = null
     private var viewport:ReaderViewport?=null
@@ -191,13 +198,38 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             if(frame.tools) drawTools(c,frame)
             return bitmap
         }
-        drawLabel(c, entry.title, bookLayout.chromeMargin, bookLayout.headerY, uiSp(bookLayout.sizing.headerSize), 110,maxWidth=(vw*.33f-bookLayout.chromeMargin).coerceAtLeast(24f))
-        val chapter=structure.chapters.lastOrNull {it.offset<=bookLayout.offsetForPage(frame.page)}
-        drawLabel(c,chapter?.title ?: "${(frame.page+1)*100/bookLayout.pages.size}%",vw/2,bookLayout.headerY,uiSp(bookLayout.sizing.chapterSize),120,Paint.Align.CENTER,maxWidth=vw*.30f)
-        drawMenuIcon(c,menuCenterX,menuY(frame))
-        bookLayout.draw(c, frame.page)
+        if(bookLayout.pages.isEmpty()){drawMenuIcon(c,menuCenterX,menuY(frame));return bitmap}
+        val pageIndex=frame.page.coerceIn(bookLayout.pages.indices)
+        val pageRange=bookLayout.pages[pageIndex]
+        // Name the chapter that the page belongs to, even when that chapter starts inside the page.
+        val heading=structure.blocks.lastOrNull {it.kind=="heading"&&it.start<=pageRange.last().end}
+        val chapter=structure.chapters.lastOrNull {it.offset<=pageRange.last().end}
+        val chapterLabel=chapter?.title ?: heading?.let {book.substring(it.start,it.end).trim()}
+        val fallback=if(book.isEmpty())"${pageIndex+1}" else "${(pageRange.first().start*100L/book.length).coerceIn(0,100)}%"
+        if(!frame.focus) {
+            // Running heads mirror a printed book: title inner, chapter outer, alternating sides.
+            val running=chapterLabel?.takeIf {it.isNotBlank()} ?: if(pageIndex>0)fallback else null
+            val odd=(pageIndex+1)%2==1
+            val leftText=if(odd)entry.title else running
+            val rightText=if(odd)running else entry.title
+            if(leftText!=null)drawLabel(c,leftText,bookLayout.chromeMargin,bookLayout.headerY,uiSp(bookLayout.sizing.headerSize),110,Paint.Align.LEFT,maxWidth=(vw*.34f-bookLayout.chromeMargin).coerceAtLeast(24f))
+            if(rightText!=null&&rightText!=leftText)drawLabel(c,rightText,vw-bookLayout.chromeMargin-uiSp(44f),bookLayout.headerY,uiSp(bookLayout.sizing.chapterSize),120,Paint.Align.RIGHT,maxWidth=(vw*.24f).coerceAtLeast(24f))
+            drawMenuIcon(c,menuCenterX,menuY(frame))
+        }
+        bookLayout.draw(c, pageIndex)
         val y = bookLayout.footerY
-        drawLabel(c, "${frame.page + 1} / ${bookLayout.pages.size}", vw / 2, y, uiSp(bookLayout.sizing.footerSize), 110, Paint.Align.CENTER)
+        if(!frame.focus) {
+            // Book folio: the number sits at the outer edge and mirrors like a printed page.
+            val odd=(pageIndex+1)%2==1
+            val folioX=if(odd) vw-bookLayout.chromeMargin else bookLayout.chromeMargin
+            val sourcePage=structure.blocks.firstOrNull {it.page>=0&&it.start in pageRange.first().start until pageRange.last().end}?.page
+            val folio=sourcePage?.let {structure.pageLabels[it]}?.takeIf {it.isNotBlank()} ?: "${pageIndex + 1}"
+            drawLabel(c, folio, folioX, y, uiSp(bookLayout.sizing.footerSize), 110, if(odd)Paint.Align.RIGHT else Paint.Align.LEFT)
+            if(frame.bookmarks.any {it in pageRange.first().start until pageRange.last().end}) {
+                label.textSize=uiSp(ReaderSizing(vw,vh).footerSize);label.color=Color.rgb(105,105,105)
+                c.drawCircle(folioX+(if(odd)-uiSp(11f) else uiSp(11f)),y-uiSp(4f),uiSp(2.1f),label)
+            }
+        }
         // Quiet end marks are navigation affordances, not a simulated device bezel.
         drawChevron(c, bookLayout.chromeMargin + 5, y - 7, false, frame.page > 0)
         drawChevron(c, vw - bookLayout.chromeMargin - 5, y - 7, true, frame.page < bookLayout.pages.lastIndex)
@@ -223,6 +255,13 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         for (i in -1..1) c.drawCircle(x + i * 7f, y, 1.9f, label)
     }
 
+    /** A quiet mark so a bookmarked page is recognisable without opening the menu. */
+    private fun drawBookmarkMark(c: Canvas, y: Float, pageLabel: String) {
+        label.textSize = uiSp(ReaderSizing(vw, vh).footerSize); label.color = Color.rgb(105, 105, 105); label.textAlign = Paint.Align.LEFT
+        val half = label.measureText(pageLabel) / 2
+        c.drawCircle(vw / 2 - half - uiSp(11f), y - uiSp(4f), uiSp(2.1f), label)
+    }
+
     private fun menuModel(frame: Frame): MenuModel {
         val bookLayout = layout(frame)
         fun t(zh: String, en: String) = if (frame.english) en else zh
@@ -234,7 +273,27 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         val currentMarked = frame.bookmarks.any { it in pageRange.first().start until pageRange.last().end }
         val hasBook=files.get(entry.id)!=null
         fun bookItem(label:String,action:MenuAction)=if(hasBook)item(label,action) else MenuRow(label)
-        val rootRows=if(LibraryWork.active)9 else 8
+        val rootRows=5
+        fun surfaceRows():List<MenuRow> = buildList {
+            if(ReaderSizing(vw,vh).phone) add(MenuRow(t("材质","Surface"),controls=listOf(t("白瓷","Porcelain"),t("护眼","Gentle"),t("类纸","Paper")).mapIndexed {i,name->control(name,MenuAction.PRESET,i,frame.preset==i)}))
+            else addAll(listOf(
+                MenuRow(t("白瓷","Porcelain"),controls=listOf(control(if(frame.preset==0)t("已选","Selected")else t("选择","Choose"),MenuAction.PRESET,0))),
+                MenuRow(t("护眼","Gentle"),controls=listOf(control(if(frame.preset==1)t("已选","Selected")else t("选择","Choose"),MenuAction.PRESET,1))),
+                MenuRow(t("类纸","Paper"),controls=listOf(control(if(frame.preset==2)t("已选","Selected")else t("选择","Choose"),MenuAction.PRESET,2)))))
+            add(MenuRow(t("冷暖","Tone"),controls=listOf(t("冷","Cool"),t("微冷","Cooler"),t("中性","Neutral"),t("微暖","Warmer"),t("暖","Warm")).mapIndexed {i,title->control(title,MenuAction.WARMTH,i,i==frame.warmth)},controlsWidth=300f))
+            add(MenuRow(t("屏幕亮度","Brightness"),controls=listOf(control(t("低","Low"),MenuAction.LIGHT,0,frame.brightnessSet&&frame.lightStep==0),control(t("中","Mid"),MenuAction.LIGHT,1,frame.brightnessSet&&frame.lightStep==1),control(t("高","High"),MenuAction.LIGHT,2,frame.brightnessSet&&frame.lightStep==2),control(t("系统","Auto"),MenuAction.LIGHT,-1,!frame.brightnessSet))))
+            add(MenuRow(t("对比度","Contrast"),controls=listOf(t("低","Low"),t("中","Mid"),t("高","High")).mapIndexed {i,title->control(title,MenuAction.CONTRAST,i,frame.contrast==i)}))
+            add(MenuRow(t("夜间模式","Night light"),controls=listOf(control(if(frame.night)t("开启","On")else t("关闭","Off"),MenuAction.NIGHT))))
+            add(MenuRow(t("深色模式","Dark mode"),controls=listOf(control(if(frame.dark)t("开启","On")else t("关闭","Off"),MenuAction.DARK))))
+        }
+        fun screenRows():List<MenuRow> = listOf(
+            MenuRow(t("刷新方式","Refresh"),controls=listOf(t("自动","Auto"),t("纸感","Paper"),t("轻快","Quick")).mapIndexed {i,title->control(title,MenuAction.REFRESH_MODE,i,frame.refreshMode==i)}),
+            MenuRow(t("倾角光感","Pose lighting"), controls=listOf(control(if(reducedMotion)t("随系统关闭","Reduced")else if(frame.optical)t("开启","On")else t("关闭","Off"),if(reducedMotion)null else MenuAction.OPTICAL))),
+            MenuRow(t("环境光适应","Ambient light"), controls=listOf(control(if(frame.ambientEnabled)t("开启","On")else t("关闭","Off"),MenuAction.AMBIENT))),
+            MenuRow(t("阅读常亮","Keep awake"),controls=listOf(control(t("跟随系统","System"),MenuAction.KEEP_AWAKE,0,!frame.readingAwake),control(t("阅读时","Reading"),MenuAction.KEEP_AWAKE,1,frame.readingAwake))),
+            MenuRow(t("屏幕方向","Orientation"),controls=listOf(control(t("自动","Auto"),MenuAction.DIRECTION,0,!frame.directionLocked),control(t("锁定当前","Lock current"),if(frame.directionAvailable)MenuAction.DIRECTION else null,1,frame.directionLocked))),
+            item(t("清屏刷新","Full refresh"),MenuAction.REFRESH)
+        )+if(frame.directionAvailable)emptyList() else listOf(MenuRow(t("当前窗口由系统控制方向","Orientation is managed by this window")))
         val model=when (frame.menu) {
             MenuPage.FILE_ACTIONS, MenuPage.FILE_DELETE -> {
                 val selected=shelfFiles.firstOrNull {it.id==frame.fileTarget}
@@ -250,17 +309,32 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                     }
                 },anchor=anchor,showHeader=false,showArrows=false)
             }
-            MenuPage.ROOT -> MenuModel(t("阅读菜单", "Reading menu"), false, buildList {
-                add(if(frame.library)bookItem(t("返回阅读", "Resume reading"),MenuAction.FILES) else item(t("文件", "Files"),MenuAction.FILES))
-                add(bookItem(t("目录与进度", "Contents & progress"),MenuAction.NAVIGATION))
+            MenuPage.ROOT -> if(frame.library) MenuModel(t("书库菜单", "Library menu"), false, buildList {
+                if(hasBook)add(item(t("继续阅读", "Resume reading"),MenuAction.FILES))
                 add(item(t("＋ 导入书籍", "+ Import books"),MenuAction.IMPORT))
-                add(bookItem(t("阅读排版", "Text & layout"),MenuAction.LAYOUT))
-                add(item(t("阅读预设", "Reading presets"),MenuAction.PRESETS))
-                add(item(t("屏幕与刷新", "Screen & refresh"),MenuAction.SCREEN))
-                add(bookItem(t("书签 · ${frame.bookmarks.size}", "Bookmarks · ${frame.bookmarks.size}"),MenuAction.BOOKMARKS))
+                add(MenuRow(t("排序", "Sort"),controls=listOf(control(t("名称","Title"),MenuAction.SHELF_SORT,0,!frame.shelfRecent),control(t("最近","Recent"),MenuAction.SHELF_SORT,1,frame.shelfRecent))))
+                add(item(t("存储与备份", "Storage & backup"),MenuAction.STORAGE))
                 add(item(t("设置", "Settings"),MenuAction.SETTINGS))
+            },5,showClose=true) else MenuModel(t("阅读菜单", "Reading menu"), false, buildList {
+                add(bookItem(t("定位 · 目录与进度", "Location · contents"),MenuAction.NAVIGATION))
+                add(MenuRow(t("版式 · 文字与版面", "Typography · layout"),cmd(MenuAction.LAYOUT),listOf(
+                    control("A−",if(frame.fontStep>0)MenuAction.FONT_DOWN else null),control(fonts[frame.fontStep].toInt().toString(),null),control("A+",if(frame.fontStep<fonts.lastIndex)MenuAction.FONT_UP else null))))
+                add(item(t("显示 · 纸与光", "Display · paper & light"),MenuAction.DISPLAY))
+                add(bookItem(t("标记 · 书签 ${frame.bookmarks.size}", "Marks · bookmarks ${frame.bookmarks.size}"),MenuAction.BOOKMARKS))
+                add(item(t("更多", "More"),MenuAction.MORE))
+            },5,showClose=true)
+            MenuPage.DISPLAY -> MenuModel(t("显示 · 纸与光", "Display · paper & light"),true,surfaceRows()+screenRows())
+            MenuPage.MORE -> MenuModel(t("更多", "More"),true,buildList {
+                add(item(t("文件库", "Library"),MenuAction.FILES))
+                add(item(t("＋ 导入书籍", "+ Import books"),MenuAction.IMPORT))
+                add(item(t("保存与备份", "Storage & backup"),MenuAction.STORAGE))
+                add(item(t("设置", "Settings"),MenuAction.SETTINGS))
+                add(item(t("检查更新", "Check for updates"),MenuAction.CHECK_UPDATE))
+                add(item(t("提交反馈", "Send feedback"),MenuAction.FEEDBACK))
+                add(MenuRow(t("专注模式","Focus mode"),controls=listOf(control(if(frame.focus)t("开启","On")else t("关闭","Off"),MenuAction.FOCUS))))
                 if(LibraryWork.active)add(item(t("暂停整理并保留进度", "Pause and keep progress"),MenuAction.PAUSE))
-            },rootRows)
+                add(MenuRow("Paperis ${BuildConfig.VERSION_NAME}"))
+            })
             MenuPage.SETTINGS -> MenuModel(t("设置", "Settings"),true,buildList {
                 add(MenuRow(t("语言", "Language"),controls=listOf(control("中文",MenuAction.LANGUAGE,0,!frame.english),control("English",MenuAction.LANGUAGE,1,frame.english))))
                 add(item(t("拉取更新", "Check for updates"),MenuAction.CHECK_UPDATE))
@@ -271,11 +345,15 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             },rootRows)
             MenuPage.UPDATE -> MenuModel(t("应用更新", "App updates"),true,buildList {
                 val u=frame.update
-                add(MenuRow(t("当前版本", "Installed")+" · "+BuildConfig.VERSION_NAME))
-                if(frame.updateVersion.isNotBlank())add(MenuRow(t("可用版本", "Available")+" · "+frame.updateVersion))
+                val channel=frame.updateChannel.ifBlank {u.channel}
+                val beta=channel=="beta"
+                val installedBeta=BuildConfig.VERSION_NAME.contains("preview",true)||BuildConfig.VERSION_NAME.contains("beta",true)
+                add(MenuRow(t("当前版本", "Installed")+" · "+BuildConfig.VERSION_NAME+(if(installedBeta)t(" · beta"," · beta") else "")))
+                if(frame.updateVersion.isNotBlank())add(MenuRow(t(if(beta)"可用测试版" else "可用正式版",if(beta)"Beta available" else "Stable available")+" · "+frame.updateVersion))
+                if(beta)add(MenuRow(t("这是 beta 测试版，可能不稳定；正式版仍可继续使用。","This is a beta build and may be unstable. The stable release remains available.")))
                 add(MenuRow(when(u.phase){
                     UpdatePhase.CHECKING->t("正在检查版本…","Checking releases…")
-                    UpdatePhase.AVAILABLE->t("发现新版本","New version available")
+                    UpdatePhase.AVAILABLE->t(if(beta)"发现测试版更新" else "发现新版本",if(beta)"Beta update available" else "New version available")
                     UpdatePhase.DOWNLOADING->t("正在下载 · ${u.progress}%","Downloading · ${u.progress}%")
                     UpdatePhase.VERIFYING->t("正在校验安装包…","Verifying APK…")
                     UpdatePhase.READY->t("下载完成，可以安装","Download verified; ready to install")
@@ -283,7 +361,10 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                     UpdatePhase.ERROR->t("更新未完成，请重试","Update unavailable; retry")
                     else->t("应用内下载更新","Download updates here")
                 }))
-                if(u.phase==UpdatePhase.AVAILABLE)add(item(t("下载更新", "Download update"),MenuAction.DOWNLOAD_UPDATE))
+                // Only the short reader-facing core list from our update manifest; never the raw
+                // GitHub release body.
+                frame.updateNotes.lineSequence().map {it.trim()}.filter {it.isNotEmpty()}.take(5).forEach {line->add(MenuRow("· $line"))}
+                if(u.phase==UpdatePhase.AVAILABLE)add(item(t(if(beta)"下载测试版更新" else "下载正式版更新",if(beta)"Download beta update" else "Download stable update"),MenuAction.DOWNLOAD_UPDATE))
                 if(u.phase==UpdatePhase.READY)add(item(t("安装更新", "Install update"),MenuAction.INSTALL_UPDATE))
                 if(u.phase in setOf(UpdatePhase.DOWNLOADING,UpdatePhase.CHECKING,UpdatePhase.VERIFYING))add(item(t("暂停", "Pause"),MenuAction.CANCEL_UPDATE))
                 else add(item(t("重新检查", "Check again"),MenuAction.CHECK_UPDATE))
@@ -294,7 +375,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuPage.IMPORT -> MenuModel(t("导入书籍", "Import books"),true,listOf(
                 item(t("＋ 从文件选择", "+ Choose files"),MenuAction.IMPORT_FILES),
                 item(t("＋ 导入整个文件夹", "+ Choose a folder"),MenuAction.IMPORT_FOLDER),
-                MenuRow("TXT · EPUB · CBZ / 图片 ZIP 漫画"), MenuRow("Markdown · HTML · DOCX · PDF · OCR"),
+                MenuRow(t("TXT · EPUB · CBZ / 图片 ZIP 漫画","TXT · EPUB · CBZ / image ZIP comics")), MenuRow(t("Markdown · HTML · DOCX · PDF · OCR","Markdown · HTML · DOCX · PDF · OCR")),
                 MenuRow(t("可多选，重复文件自动跳过", "Select several; duplicates are skipped")),
                 MenuRow(t("原文件保留在原来的位置", "Your original files stay untouched")),
                 MenuRow(t("单文件最大 64 MiB · 离线识别", "Up to 64 MiB · offline OCR")),
@@ -337,32 +418,14 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 if (vw < vh) add(MenuRow(t("竖屏保持单栏","Portrait uses one column")))
                 else if(bookLayout.columns==1 && frame.columnMode!=1) add(MenuRow(t("当前窗口适合单栏","One column fits this window")))
             })
-            MenuPage.PRESETS -> MenuModel(t("阅读预设","Reading presets"),true,buildList {
-                if(ReaderSizing(vw,vh).phone) add(MenuRow(t("材质","Surface"),controls=listOf(t("白瓷","Porcelain"),t("护眼","Gentle"),t("类纸","Paper")).mapIndexed {i,name->control(name,MenuAction.PRESET,i,frame.preset==i)}))
-                else addAll(listOf(
-                MenuRow(t("白瓷","Porcelain"),controls=listOf(control(if(frame.preset==0)t("已选","Selected")else t("选择","Choose"),MenuAction.PRESET,0))),
-                MenuRow(t("护眼","Gentle"),controls=listOf(control(if(frame.preset==1)t("已选","Selected")else t("选择","Choose"),MenuAction.PRESET,1))),
-                MenuRow(t("类纸","Paper"),controls=listOf(control(if(frame.preset==2)t("已选","Selected")else t("选择","Choose"),MenuAction.PRESET,2)))))
-                addAll(listOf(
-                MenuRow(t("冷暖","Tone"),controls=listOf(t("冷","Cool"),t("微冷","Cooler"),t("中性","Neutral"),t("微暖","Warmer"),t("暖","Warm")).mapIndexed {i,title->control(title,MenuAction.WARMTH,i,i==frame.warmth)},controlsWidth=300f),
-                MenuRow(t("屏幕亮度","Brightness"),controls=listOf(control(t("低","Low"),MenuAction.LIGHT,0,frame.brightnessSet&&frame.lightStep==0),control(t("中","Mid"),MenuAction.LIGHT,1,frame.brightnessSet&&frame.lightStep==1),control(t("高","High"),MenuAction.LIGHT,2,frame.brightnessSet&&frame.lightStep==2),control(t("系统","Auto"),MenuAction.LIGHT,-1,!frame.brightnessSet))),
-                MenuRow(t("对比度","Contrast"),controls=listOf(t("低","Low"),t("中","Mid"),t("高","High")).mapIndexed {i,title->control(title,MenuAction.CONTRAST,i,frame.contrast==i)}),
-                MenuRow(t("夜间模式","Night light"),controls=listOf(control(if(frame.night)t("开启","On")else t("关闭","Off"),MenuAction.NIGHT))),
-                MenuRow(t("深色模式","Dark mode"),controls=listOf(control(if(frame.dark)t("开启","On")else t("关闭","Off"),MenuAction.DARK)))))
-            },if(ReaderSizing(vw,vh).phone)0 else rootRows)
-            MenuPage.SCREEN -> MenuModel(t("屏幕与刷新","Screen & refresh"), true, listOf(
-                MenuRow(t("刷新方式","Refresh"),controls=listOf(t("自动","Auto"),t("纸感","Paper"),t("轻快","Quick")).mapIndexed {i,title->control(title,MenuAction.REFRESH_MODE,i,frame.refreshMode==i)}),
-                MenuRow(t("倾角光感","Pose lighting"), controls=listOf(control(if(reducedMotion)t("随系统关闭","Reduced")else if(frame.optical)t("开启","On")else t("关闭","Off"),if(reducedMotion)null else MenuAction.OPTICAL))),
-                MenuRow(t("阅读常亮","Keep awake"),controls=listOf(control(t("跟随系统","System"),MenuAction.KEEP_AWAKE,0,!frame.readingAwake),control(t("阅读时","Reading"),MenuAction.KEEP_AWAKE,1,frame.readingAwake))),
-                MenuRow(t("屏幕方向","Orientation"),controls=listOf(control(t("自动","Auto"),MenuAction.DIRECTION,0,!frame.directionLocked),control(t("锁定当前","Lock current"),if(frame.directionAvailable)MenuAction.DIRECTION else null,1,frame.directionLocked))),
-                item(t("清屏刷新","Full refresh"),MenuAction.REFRESH))+
-                if(frame.directionAvailable)emptyList() else listOf(MenuRow(t("当前窗口由系统控制方向","Orientation is managed by this window"))))
+            MenuPage.PRESETS -> MenuModel(t("阅读预设","Reading presets"),true,surfaceRows(),if(ReaderSizing(vw,vh).phone)0 else rootRows)
+            MenuPage.SCREEN -> MenuModel(t("屏幕与刷新","Screen & refresh"), true, screenRows())
             MenuPage.NAVIGATION -> MenuModel(t("目录与进度","Contents & progress"),true,buildList {
                 add(item(t("书籍开头","Beginning"),MenuAction.CHAPTER,0))
                 add(MenuRow(t("跳转页码","Page"),controls=listOf(control("−",if(frame.draftPage>0)MenuAction.DRAFT_DOWN else null),control("${frame.draftPage+1}/${bookLayout.pages.size}",null),control("+",if(frame.draftPage<bookLayout.pages.lastIndex)MenuAction.DRAFT_UP else null))))
                 add(MenuRow("",controls=listOf(0,25,50,75,100).map {control("$it%",MenuAction.PERCENT,it)}))
                 add(item(t("前往第 ${frame.draftPage+1} 页","Go to page ${frame.draftPage+1}"),MenuAction.GO))
-                add(MenuRow(if(structure.chapters.isEmpty())t("未识别到可靠章节标题","No reliable headings detected") else if(structure.directorySource=="mixed")t("原书目录 + 补全章节 · ${structure.chapters.size} 项","Book + detected contents · ${structure.chapters.size}") else if(structure.directorySource=="epub")t("原书目录 · ${structure.chapters.size} 项","Book contents · ${structure.chapters.size}") else t("自动识别目录 · ${structure.chapters.size} 项","Detected contents · ${structure.chapters.size}")))
+                add(MenuRow(if(structure.chapters.isEmpty())t("未识别到可靠章节标题","No reliable headings detected") else if(structure.directorySource=="mixed")t("原书目录 + 补全章节 · ${structure.chapters.size} 项","Book + detected contents · ${structure.chapters.size}") else if(structure.directorySource=="epub")t("原书目录 · ${structure.chapters.size} 项","Book contents · ${structure.chapters.size}") else if(structure.directorySource=="pdf")t("PDF 原书目录 · ${structure.chapters.size} 项","PDF outline · ${structure.chapters.size}") else t("自动识别目录 · ${structure.chapters.size} 项","Detected contents · ${structure.chapters.size}")))
                 val offset=bookLayout.offsetForPage(frame.page)
                 val current=structure.chapters.lastOrNull {it.offset<=offset}
                 structure.chapters.forEach {chapter->
@@ -373,16 +436,15 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuPage.BOOKMARKS -> MenuModel(t("书签","Bookmarks"), true, buildList {
                 add(item(if (currentMarked) t("移除当前页书签","Remove this bookmark") else t("添加当前页书签","Bookmark this page"), MenuAction.BOOKMARK_TOGGLE))
                 if (frame.bookmarks.isEmpty()) add(MenuRow(t("还没有书签","No bookmarks yet")))
-                val lastListPage = ((frame.bookmarks.size - 1) / 4).coerceAtLeast(0)
-                val listPage = frame.bookmarkListPage.coerceIn(0..lastListPage)
-                frame.bookmarks.drop(listPage * 4).take(4).forEach { offset ->
-                    add(MenuRow(t("第 ${bookLayout.pageForOffset(offset) + 1} 页","Page ${bookLayout.pageForOffset(offset) + 1}"), cmd(MenuAction.BOOKMARK_GO, offset),
-                        listOf(control(t("移除","Remove"), MenuAction.BOOKMARK_REMOVE, offset)), 84f))
+                // The scrolling panel replaces the old four-per-page pager; each row shows recognisable text.
+                frame.bookmarks.forEach { offset ->
+                    val page=bookLayout.pageForOffset(offset)
+                    val snippet=bookLayout.pageText(page).replace(Regex("\\s+")," ").trim()
+                    val label=snippet.take(22).ifBlank { t("第 ${page + 1} 页","Page ${page + 1}") }
+                    add(MenuRow(label, cmd(MenuAction.BOOKMARK_GO, offset), listOf(
+                        control("${page+1}", MenuAction.BOOKMARK_GO, offset),
+                        control(t("移除","Remove"), MenuAction.BOOKMARK_REMOVE, offset)), 104f))
                 }
-                if (lastListPage > 0) add(MenuRow("", controls = listOf(
-                    control(t("上一组","Previous"), if (listPage > 0) MenuAction.BOOKMARK_PREVIOUS else null),
-                    control("${listPage + 1}/${lastListPage + 1}", null),
-                    control(t("下一组","Next"), if (listPage < lastListPage) MenuAction.BOOKMARK_NEXT else null))))
             })
         }
         return model.copy(scroll=frame.menuScroll)
@@ -406,8 +468,10 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuAction.FILE_CANCEL -> request(logical.copy(tools=false,fileTarget=""))
             MenuAction.REFRESH_MODE -> {request(logical.copy(refreshMode=command.value.coerceIn(0,2)));savePreferences()}
             MenuAction.KEEP_AWAKE -> {request(logical.copy(readingAwake=command.value==1));savePreferences()}
+            MenuAction.SHELF_SORT -> { val recent=command.value==1;files.preferences.edit().putBoolean("shelfRecent",recent).apply();request(logical.copy(shelfRecent=recent,shelfPage=0)) }
+            MenuAction.AMBIENT -> toggleAmbient()
             MenuAction.DIRECTION -> (context as? MainActivity)?.setReadingDirection(command.value==1)
-            MenuAction.FILES -> if(logical.library) {if(files.get(entry.id)!=null)request(logical.copy(library=false,tools=false))} else showFiles()
+            MenuAction.FILES -> if(logical.library) resumeReading() else showFiles()
             MenuAction.PAUSE -> LibraryWork.cancel(context)
             MenuAction.REFLOW -> openMenu(MenuPage.REFLOW)
             MenuAction.REPROCESS -> reprocess(false)
@@ -443,6 +507,9 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
             MenuAction.PRESET -> { request(logical.copy(preset=command.value),true); files.preferences.edit().putInt("preset",command.value).apply() }
             MenuAction.BACK -> backFromTools()
             MenuAction.NAVIGATION -> openMenu(MenuPage.NAVIGATION)
+            MenuAction.DISPLAY -> openMenu(MenuPage.DISPLAY)
+            MenuAction.MORE -> openMenu(MenuPage.MORE)
+            MenuAction.FOCUS -> toggleFocus()
             MenuAction.BOOKMARKS -> openMenu(MenuPage.BOOKMARKS)
             MenuAction.LAYOUT -> openMenu(MenuPage.LAYOUT)
             MenuAction.SCREEN -> openMenu(MenuPage.SCREEN)
@@ -474,6 +541,65 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         }
         return true
     }
+    /** Consumes Back inside a folder: the system gesture goes up one level instead of quitting. */
+    /** Resuming from the library also makes this the remembered book, so the resume row reflects it. */
+    private fun resumeReading() {
+        if(files.get(entry.id)==null)return
+        files.preferences.edit().putString("lastBook",entry.id).apply()
+        request(logical.copy(library=false,tools=false))
+    }
+    internal fun backInShelf(): Boolean {
+        if(!logical.library||logical.shelfFolder.isEmpty())return false
+        request(logical.copy(shelfFolder=logical.shelfFolder.substringBeforeLast('/',""),shelfPage=0,fileTarget=""))
+        return true
+    }
+    /** Release cached illustration bitmaps when Android asks for memory. */
+    internal fun trimMemory(){ files.trimCaches() }
+    private fun announce(value:String) {
+        if(value.isBlank())return
+        sendAccessibilityEventUnchecked(android.view.accessibility.AccessibilityEvent.obtain(
+            android.view.accessibility.AccessibilityEvent.TYPE_ANNOUNCEMENT).apply { text.add(value) })
+    }
+
+    internal val ambientEnabled get()=logical.ambientEnabled
+    internal val currentAmbientTone get()=currentAmbient(SystemClock.uptimeMillis())
+    internal val ambientSceneForTest get()=ambientScene
+    internal fun setAmbientSceneForTest(scene:Int){ ambientLight.setSceneForTest(scene) }
+
+    private fun onAmbientScene(scene:Int) {
+        ambientScene=scene
+        if(!logical.ambientEnabled)return
+        val now=SystemClock.uptimeMillis()
+        ambientFrom=currentAmbient(now);ambientTo=OpticalTone.tone(scene);ambientStart=now
+        invalidate()
+    }
+    private fun currentAmbient(now:Long):AmbientTone {
+        if(ambientStart<=0L)return ambientTo
+        val t=(now-ambientStart).toFloat()/AMBIENT_FADE_MS
+        if(t>=1f){ambientFrom=ambientTo;ambientStart=0L;return ambientTo}
+        return OpticalTone.mix(ambientFrom,ambientTo,t)
+    }
+    private fun pageFlash():Float=when(logical.refreshMode){1->.45f;2->.30f;else->.55f}
+    internal val focusMode get()=logical.focus
+    internal val updateChannel get()=logical.updateChannel
+    internal val updateNotes get()=logical.updateNotes
+    internal fun toggleFocus() {
+        val next=!logical.focus
+        files.preferences.edit().putBoolean("focus",next).apply()
+        request(logical.copy(focus=next))
+        (context as? MainActivity)?.applyFocus(next)
+    }
+    internal fun toggleAmbient() {
+        val enabled=!logical.ambientEnabled
+        files.preferences.edit().putBoolean("ambient",enabled).apply()
+        if(enabled){ambientLight.start();ambientScene=ambientLight.scene}else ambientLight.stop()
+        val now=SystemClock.uptimeMillis()
+        ambientFrom=currentAmbient(now)
+        ambientTo=if(enabled)OpticalTone.tone(ambientScene) else AmbientTone.NEUTRAL
+        ambientStart=now
+        request(logical.copy(ambientEnabled=enabled))
+        invalidate()
+    }
     internal fun jumpToPage(page: Int) {
         val target=page.coerceIn(0,pageCount-1)
         savedOffset=layout(logical).offsetForPage(target)
@@ -501,9 +627,13 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         savePreferences()
     }
     private fun savePreferences() {
-        if(files.get(entry.id)!=null)preferences.edit().putInt("offset", savedOffset).putInt("font", logical.fontStep)
-            .putInt("spacing", logical.spacingStep).putInt("columns", logical.columnMode)
-            .putBoolean("optical", logical.optical).apply()
+        if(files.get(entry.id)!=null) {
+            preferences.edit().putInt("offset", savedOffset).putInt("font", logical.fontStep)
+                .putInt("spacing", logical.spacingStep).putInt("columns", logical.columnMode)
+                .putBoolean("optical", logical.optical).apply()
+            val pages=if(layouts.isEmpty())0 else layout(logical).pages.size
+            files.recordProgress(entry.id,logical.page,pages)
+        }
         files.preferences.edit().putInt("face",logical.face).putInt("preset",logical.preset)
             .putInt("refreshMode",logical.refreshMode).putBoolean("readingAwake",logical.readingAwake)
             .putBoolean("english",logical.english).putBoolean("night",logical.night).putBoolean("dark",logical.dark).putInt("light",logical.lightStep).putInt("warmth",logical.warmth).putBoolean("brightnessSet",logical.brightnessSet).putInt("contrast",logical.contrast).apply()
@@ -517,20 +647,25 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         if (response.advance(now)) material?.update(render(response.displayed),appearance(response.displayed))
         if(response.active==null) material?.settle()
         material?.draw(canvas, response.canonicalElapsed(now), response.active != null, response.active?.full == true,
-            if (reducedMotion || !logical.optical) 0f else surfaceLight.pose.x, if (reducedMotion || !logical.optical) 0f else surfaceLight.pose.y, viewport,response.active?.surface==true)
+            if (reducedMotion || !logical.optical) 0f else surfaceLight.pose.x, if (reducedMotion || !logical.optical) 0f else surfaceLight.pose.y, viewport,response.active?.surface==true,
+            currentAmbient(now),response.active?.pageTurn==true,response.elapsed(now),response.duration,pageFlash())
         drawCount++
         if (response.active != null && active) postInvalidateOnAnimation()
+        if(ambientStart>0L&&now-ambientStart<AMBIENT_FADE_MS) postInvalidateOnAnimation()
     }
 
     private fun request(next: Frame, full: Boolean = false,clean:Boolean=false) {
         if (material == null) return
         val surface=full||next.appearance!=logical.appearance
+        val pageTurn=!clean&&!surface&&next.page!=logical.page&&next.fontStep==logical.fontStep&&next.face==logical.face&&next.spacingStep==logical.spacingStep&&next.columnMode==logical.columnMode
+        val layoutChange=!clean&&!surface&&!pageTurn&&(next.fontStep!=logical.fontStep||next.face!=logical.face||next.spacingStep!=logical.spacingStep||next.columnMode!=logical.columnMode)
         val scene=when {clean->RefreshPolicy.Scene.CLEAN;surface->RefreshPolicy.Scene.SURFACE
-            next.page!=logical.page||next.fontStep!=logical.fontStep||next.face!=logical.face||next.spacingStep!=logical.spacingStep||next.columnMode!=logical.columnMode->RefreshPolicy.Scene.PAGE
+            pageTurn->RefreshPolicy.Scene.PAGE
+            layoutChange->RefreshPolicy.Scene.LAYOUT
             else->RefreshPolicy.Scene.MENU}
         if(next.dark!=logical.dark)(context as? android.app.Activity)?.window?.insetsController?.setSystemBarsAppearance(if(next.dark)0 else android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS)
         logical = next
-        val started = response.offer(next,SystemClock.uptimeMillis(),clean,reducedMotion,RefreshPolicy.duration(next.refreshMode,scene),surface)
+        val started = response.offer(next,SystemClock.uptimeMillis(),clean,reducedMotion,RefreshPolicy.duration(next.refreshMode,scene),surface,pageTurn)
         if (started) {
             if (reducedMotion) material?.setInitial(render(next),appearance(next))
             else material?.update(render(response.displayed),appearance(response.displayed))
@@ -622,12 +757,13 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         }
     }
 
-    internal fun updateStatus(value:UpdateUi,version:String="") {
-        val next=logical.copy(update=value,updateVersion=version)
+    internal fun updateStatus(value:UpdateUi,version:String="",channel:String="",notes:String="") {
+        val next=logical.copy(update=value,updateVersion=version,updateChannel=channel.ifBlank {value.channel},updateNotes=notes.ifBlank {value.notes})
         if(material==null){logical=next;response=InkResponse(next)}else request(next)
     }
 
     internal fun showFiles(notice: String = "", busy: Boolean = false) {
+        removeCallbacks(noticeClear)
         if(!logical.library) savePreferences()
         var rebuilt=false
         if(!busy) {
@@ -647,12 +783,13 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
                 rebuilt=true
             }
         }
-        val last=((shelf.items(shelfFiles,logical.shelfFolder).size-1)/shelf.pageSize(vw,vh,logical.english)).coerceAtLeast(0)
+        val last=((shelf.items(shelfFiles,logical.shelfFolder,logical.english).size-1)/shelf.pageSize(vw,vh,logical.english,notice)).coerceAtLeast(0)
         val next=logical.copy(library=true,tools=busy&&logical.tools,notice=notice,busy=busy,shelfPage=logical.shelfPage.coerceAtMost(last),fileTarget="")
         if(rebuilt){logical=next;displayRebuiltPage()}else request(next)
+        if(notice.isNotEmpty()&&!busy){announce(notice.lineSequence().first());postDelayed(noticeClear,5000)}
     }
     private fun shelfPage(direction: Int) {
-        val last=((shelf.items(shelfFiles,logical.shelfFolder).size-1)/shelf.pageSize(vw,vh,logical.english)).coerceAtLeast(0)
+        val last=((shelf.items(shelfFiles,logical.shelfFolder).size-1)/shelf.pageSize(vw,vh,logical.english,logical.notice)).coerceAtLeast(0)
         request(logical.copy(shelfPage=(logical.shelfPage+direction).coerceIn(0,last)))
     }
     private fun shelfCommand(command: ShelfCommand) {
@@ -713,7 +850,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
 
     fun pause() {
         active = false; removeCallbacks(longPress)
-        surfaceLight.stop()
+        surfaceLight.stop();ambientLight.stop();removeCallbacks(noticeClear)
         if (layouts.isNotEmpty()) {
             savePreferences()
         }
@@ -728,6 +865,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
         val previousReducedMotion = reducedMotion
         reducedMotion = Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
         if (reducedMotion || !logical.optical) surfaceLight.stop() else surfaceLight.start()
+        if(logical.ambientEnabled)ambientLight.start() else ambientLight.stop()
         if ((reducedMotion && response.active != null) || previousReducedMotion != reducedMotion) {
             response.settle()
             if (width > 0) material?.setInitial(render(logical),appearance(logical))
@@ -801,6 +939,7 @@ class InkView @JvmOverloads constructor(context: Context, private val importFile
     }
 
     companion object {
+        private const val AMBIENT_FADE_MS = 900L
         const val ACTION_TOOLS = 0x01000001
         const val ACTION_REFRESH = 0x01000002
         const val ACTION_LARGER = 0x01000003

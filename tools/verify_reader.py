@@ -14,6 +14,7 @@ SUITES = {
     "reflow-corpus": ("reflow-corpus-verification", "reflow-corpus-report.json"),
     "reflow-guard": ("reflow-guard-verification", "reflow-guard-report.json"),
     "file-actions": ("file-actions-verification", "file-actions-report.json"),
+    "physicality": ("physicality-verification", "physicality-report.json"),
     "screen-behavior": ("screen-behavior-verification", "screen-behavior-report.json"),
     "upgrade-prepare": ("upgrade-verification", "upgrade-prepare-report.json"),
     "upgrade": ("upgrade-verification", "upgrade-report.json"),

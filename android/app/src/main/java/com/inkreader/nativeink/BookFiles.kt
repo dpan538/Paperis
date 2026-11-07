@@ -11,6 +11,8 @@ import java.io.File
 import java.security.MessageDigest
 
 internal data class BookFile(val id: String, val name: String, val title: String, val format: String, val folder: String,val chapters:Int=0,val structured:Boolean=false,val bundle:String="")
+/** Cheap library progress; the source offset in the per-book preferences stays authoritative. */
+internal data class BookProgress(val page:Int,val pages:Int,val percent:Int,val lastRead:Long)
 
 /** Private imported copies; source documents are never changed or removed. */
 internal class BookFiles(private val context: Context) {
@@ -23,7 +25,14 @@ internal class BookFiles(private val context: Context) {
     private val bitmaps=object:LinkedHashMap<String,android.graphics.Bitmap>(4,.75f,true) {
         override fun removeEldestEntry(eldest:MutableMap.MutableEntry<String,android.graphics.Bitmap>?)=false
     }
-    init { reload() }
+    init {
+        reload()
+        // The bundled sample text was replaced by the author's essay; clear stale offsets/bookmarks once.
+        val sampleState = context.getSharedPreferences("reading", Context.MODE_PRIVATE)
+        if (sampleState.getInt("sampleTextVersion", 0) < 2) {
+            sampleState.edit().clear().putInt("sampleTextVersion", 2).apply()
+        }
+    }
     @Synchronized fun reload() {
         entries.clear();bitmaps.clear();cachedBitmapBytes=0
         runCatching {
@@ -35,7 +44,7 @@ internal class BookFiles(private val context: Context) {
             }
         }
     }
-    val demo = BookFile("sample", "山窗随记.txt", "山窗随记 · 试读", "TXT", "")
+    val demo = BookFile("sample", "Church.txt", "Church · 试读", "TXT", "")
     @Synchronized fun list(): List<BookFile> = entries.toList() + if(preferences.getBoolean("sampleHidden",false))emptyList() else listOf(demo)
     @Synchronized fun get(id: String) = list().find { it.id == id }
     internal fun bundle(entry:BookFile)=File(directory,entry.bundle.takeIf {it.matches(Regex("[a-f0-9]{64}-v2-[a-z0-9-]{36}"))}?:"${entry.id}-v2")
@@ -70,6 +79,22 @@ internal class BookFiles(private val context: Context) {
         }.getOrNull()
     }
     fun reading(entry: BookFile) = context.getSharedPreferences(if (entry.id == "sample") "reading" else "book_${entry.id}", Context.MODE_PRIVATE)
+    /** Library progress for the shelf; negative/zero page counts are treated as unread. */
+    fun progress(id:String):BookProgress? {
+        if(id.isEmpty())return null
+        val pages=preferences.getInt("pages_$id",0);val page=preferences.getInt("page_$id",-1);val last=preferences.getLong("lastRead_$id",0L)
+        if(pages<=0||page<0||last<=0L)return null
+        val percent=preferences.getInt("percent_$id",-1).takeIf {it in 0..100}?:((page+1)*100/pages).coerceIn(0,100)
+        return BookProgress(page,pages,percent,last)
+    }
+    /** 0-based page in the reader's current layout; skip books without a usable page count. */
+    fun recordProgress(id:String,page:Int,pages:Int) {
+        if(id.isEmpty()||pages<=0||page<0)return
+        preferences.edit().putLong("lastRead_$id",System.currentTimeMillis()).putInt("page_$id",page).putInt("pages_$id",pages)
+            .putInt("percent_$id",((page+1)*100/pages).coerceIn(0,100)).apply()
+    }
+    /** Drop cached illustrations on memory pressure; they are rebuilt from the local copies. */
+    @Synchronized fun trimCaches() {bitmaps.clear();cachedBitmapBytes=0}
     fun displayName(uri: Uri): String {
         return runCatching {context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
             if (cursor.moveToFirst()) cursor.getString(0) else null
@@ -104,6 +129,7 @@ internal class BookFiles(private val context: Context) {
         }
         reading(entry).edit().clear().commit()
         if(preferences.getString("lastBook",null)==id)preferences.edit().remove("lastBook").commit()
+        preferences.edit().remove("lastRead_$id").remove("page_$id").remove("pages_$id").remove("percent_$id").commit()
         return true
     }
     @Synchronized fun attachOriginal(id:String,uri:Uri) {

@@ -53,12 +53,12 @@ internal class BackupExperienceEvidence(private val host:Instrumentation) {
             waitFor("service import"){!LibraryWork.active};settle()
             val file=ui {activity.inkView.files.list().first {it.name=="文本.pdf"}}
             ui {activity.inkView.openBook(file,activity.inkView.files.text(file));activity.inkView.performAccessibilityAction(InkView.ACTION_TOOLS,null)};settle()
-            command("阅读排版");command("重新排版本书");capture(out,"01-reprocess-menu.png")
+            command("版式 · 文字与版面");command("重新排版本书");capture(out,"01-reprocess-menu.png")
             verify("Reading layout exposes manual reprocessing and original PDF pages",ui {val info=activity.inkView.createAccessibilityNodeInfo();info.text.toString().contains("查看 PDF 原页")&&info.text.toString().contains("无需重复导入")})
             command("重新整理段落与目录")
             waitFor("manual reprocess"){!LibraryWork.active};settle()
             verify("Manual reprocessing resumes reading without launching a file picker",ui {!activity.inkView.libraryOpen&&activity.inkView.files.get(file.id)?.bundle!=file.bundle}&&uiAutomation.rootInActiveWindow?.packageName?.toString()==targetContext.packageName)
-            ui {activity.inkView.performAccessibilityAction(InkView.ACTION_TOOLS,null)};settle();command("设置");command("保存与备份");capture(out,"02-storage-menu.png")
+            ui {activity.inkView.performAccessibilityAction(InkView.ACTION_TOOLS,null)};settle();command("更多");command("设置");command("保存与备份");capture(out,"02-storage-menu.png")
             val existingTree=LibraryBackup(targetContext,activity.inkView.files).tree
             val backupStarted=System.currentTimeMillis()
             command("选择本地备份文件夹")

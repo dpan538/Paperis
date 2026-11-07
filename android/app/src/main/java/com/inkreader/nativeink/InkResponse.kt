@@ -6,7 +6,7 @@ package com.inkreader.nativeink
  * All durations are chosen simulation values, not a measured BOOX waveform.
  */
 internal class InkResponse<T>(initial: T) {
-    data class Request<T>(val value: T, val full: Boolean, val durationMs:Long, val surface:Boolean=false)
+    data class Request<T>(val value: T, val full: Boolean, val durationMs:Long, val surface:Boolean=false, val pageTurn:Boolean=false)
     var displayed: T = initial; private set
     var previous: T = initial; private set
     var active: Request<T>? = null; private set
@@ -16,7 +16,7 @@ internal class InkResponse<T>(initial: T) {
     fun canonicalElapsed(now:Long):Long=elapsed(now)*(if(active?.full==true)FULL_MS else PARTIAL_MS)/duration
 
     fun offer(value: T, now: Long, full: Boolean = false, instant: Boolean = false,
-        durationMs:Long=if(full)FULL_MS else PARTIAL_MS,surface:Boolean=false): Boolean {
+        durationMs:Long=if(full)FULL_MS else PARTIAL_MS,surface:Boolean=false,pageTurn:Boolean=false): Boolean {
         require(durationMs>0)
         if (instant) {
             displayed = value; previous = value; active = null; pending = null
@@ -26,13 +26,13 @@ internal class InkResponse<T>(initial: T) {
             // A requested clean must survive newer page input.
             val retained=pending
             pending = Request(value,full||retained?.full==true,
-                if(!full&&retained?.full==true)retained.durationMs else durationMs,surface||retained?.surface==true)
+                if(!full&&retained?.full==true)retained.durationMs else durationMs,surface||retained?.surface==true,pageTurn||retained?.pageTurn==true)
             return false
         }
         if (value == displayed && !full) return false
         previous = displayed
         val clean = full
-        active = Request(value, clean,durationMs,surface)
+        active = Request(value, clean,durationMs,surface,pageTurn)
         displayed = value
         startedAt = now
         return true
@@ -45,7 +45,7 @@ internal class InkResponse<T>(initial: T) {
         if (active == null || elapsed(now) < duration) return false
         active = null; previous = displayed
         val next = pending; pending = null
-        return next != null && offer(next.value,now,next.full,durationMs=next.durationMs,surface=next.surface)
+        return next != null && offer(next.value,now,next.full,durationMs=next.durationMs,surface=next.surface,pageTurn=next.pageTurn)
     }
 
     /** Settle on pause/re-layout: never replay stale flash sequences on resume. */

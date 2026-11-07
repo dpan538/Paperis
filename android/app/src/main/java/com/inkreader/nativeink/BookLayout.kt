@@ -42,6 +42,39 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
     private val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG or TextPaint.SUBPIXEL_TEXT_FLAG).apply {
         textSize = font; color = Color.BLACK; typeface = face; textLocale = Locale.SIMPLIFIED_CHINESE
     }
+    // Punctuation compression is measured as replacement spans before the first layout build.
+    private val imageRanges=structure.blocks.filter {(it.kind=="image"||it.kind=="plate")&&it.start>=0&&it.end<=text.length&&it.start<it.end}.map {it.start until it.end}
+    private val plateSpanWidth=if(columns>1) (textWidth*columns+gutter*(columns-1)).toInt() else textWidth
+    private var plateLines:Set<Int> = emptySet()
+    // Paragraph tails are replacement spans too, so runs that could fall inside the protected
+    // three-character suffix are left uncompressed instead of letting two spans overlap.
+    private val tailSuffixes=run {
+        val suffix=mutableListOf<IntRange>();var start=0
+        while(start<=text.length) {
+            val newline=text.indexOf('\n',start);val end=if(newline<0)text.length else newline
+            if(end-start>=8) {
+                var at=end;var letters=0
+                while(at>start&&letters<3) {at=text.offsetByCodePoints(at,-1);if(text[at].isLetterOrDigit())letters++}
+                if(letters==3)suffix+=at until end
+            }
+            if(newline<0)break
+            start=newline+1
+        }
+        suffix
+    }
+    private val punctuation=run {
+        val result=mutableListOf<CjkTypography.CompressionRun>();var suffixIndex=0
+        for(run in CjkTypography.compressionRuns(text,0,text.length,CjkTypography.MAX_COMPRESSED_RUNS*2)) {
+            if(result.size>=CjkTypography.MAX_COMPRESSED_RUNS)break
+            if(imageRanges.any {range->run.start<=range.last&&range.first<=run.end-1})continue
+            while(suffixIndex<tailSuffixes.size&&tailSuffixes[suffixIndex].last<run.start)suffixIndex++
+            if(suffixIndex<tailSuffixes.size&&tailSuffixes[suffixIndex].first<=run.end-1)continue
+            result+=run
+        }
+        result
+    }
+    /** Runs of 2+ full-width marks whose advance is compressed to at most 1em. */
+    val compressedPunctuationRuns:Int get()=punctuation.size
     private val styled=SpannableString(text).apply {
         structure.blocks.forEach {block->
             if(block.start !in text.indices||block.end>text.length)return@forEach
@@ -53,6 +86,7 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
                 }
                 "subtitle"->{setSpan(RelativeSizeSpan(1.16f),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);setSpan(android.text.style.AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)}
                 "image"->imageSize(block.image)?.let {(w,h)->setSpan(Illustration(w,h,{imageProvider(block.image)},textWidth,(bodyHeight-font*spacing*(if(structure.comic)3 else 1)-12).toInt(),structure.comic),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)}
+                "plate"->imageSize(block.image)?.let {(w,h)->setSpan(Illustration(w,h,{imageProvider(block.image)},plateSpanWidth,(bodyHeight-font*spacing-12).toInt(),false),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)}
                 "metadata","caption"->setSpan(RelativeSizeSpan(.88f),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 "quote","verse"->setSpan(LeadingMarginSpan.Standard((font*.8f).toInt()),block.start,block.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 else->{
@@ -63,8 +97,12 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
             }
         }
         Regex("\\n\\n").findAll(text).forEach {gap->setSpan(ParagraphGap((font*.62f).toInt()),gap.range.last,gap.range.last+1,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)}
+        // Consecutive full-width marks keep every character but share a bounded advance.
+        punctuation.forEach {run->setSpan(CompressedPunctuation(run.markStart-run.start,run.marks,run.end-run.markEnd),run.start,run.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)}
     }
-    private fun build(justify:Boolean=false): StaticLayout = StaticLayout.Builder.obtain(styled, 0, styled.length, paint, textWidth)
+    private fun build(justify:Boolean=false): StaticLayout {
+        layoutBuilds++
+        return StaticLayout.Builder.obtain(styled, 0, styled.length, paint, textWidth)
         .setAlignment(Layout.Alignment.ALIGN_NORMAL)
         .setIncludePad(false)
         .setLineSpacing(font * spacing, 1f)
@@ -73,14 +111,19 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
         .setJustificationMode(if(justify)LineBreaker.JUSTIFICATION_MODE_INTER_WORD else LineBreaker.JUSTIFICATION_MODE_NONE)
         .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
         .build()
+    }
     val layout: StaticLayout
     val spacingDecisions:List<ParagraphSpacing.Decision>
     private val wordSpacing:FloatArray
+    private val cjkSpacing:FloatArray
+    /** Body lines that receive bounded CJK letter spacing. */
+    val cjkJustifiedLines:Int
     val pages: List<List<Column>>
     val paginationRepairs:List<String>
 
     init {
         val initial = build()
+        var tailsAdded=false
         if (protectTails) {
             var start = 0
             text.split('\n').forEach { paragraph ->
@@ -92,16 +135,41 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
                     if (lineStart > start && tail.count { it.isLetterOrDigit() } == 1 && tail.any { it.code in 0x3400..0x9fff }) {
                         var at = end; var letters = 0
                         while (at > start && letters < 3) { at = text.offsetByCodePoints(at, -1); if (text[at].isLetterOrDigit()) letters++ }
-                        if (letters == 3 && paint.measureText(text, at, end) < columnWidth * .7f)
+                        if (letters == 3 && paint.measureText(text, at, end) < columnWidth * .7f) {
                             styled.setSpan(ParagraphTail(), at, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            tailsAdded=true
+                        }
                     }
                 }
                 start = end + 1
             }
         }
-        layout = if (protectTails) build() else initial
+        // Rebuild only when paragraph tails actually changed the measured text; otherwise the
+        // initial layout is already final (one StaticLayout build instead of two).
+        layout = if (protectTails&&tailsAdded) build() else initial
+        val plateLineRanges=structure.blocks.filter {it.kind=="plate"&&it.start in text.indices&&it.end<=text.length}.map {block->
+            val first=layout.getLineForOffset(block.start)
+            val last=layout.getLineForOffset((block.end-1).coerceAtLeast(block.start))
+            first..last
+        }
+        plateLines=plateLineRanges.flatMap {it.toList()}.toSet()
         val spacingPolicy=ParagraphSpacing.decide(text,structure,layout,font)
         spacingDecisions=spacingPolicy.decisions;wordSpacing=spacingPolicy.added
+        // Per-line CJK letter spacing from leftover slack; word-justified lines never receive it.
+        val lineSpans=ArrayList<CjkTypography.LineSpan>(layout.lineCount)
+        var blockIndex=0
+        for (line in 0 until layout.lineCount) {
+            val start=layout.getLineStart(line)
+            while(blockIndex<structure.blocks.size&&structure.blocks[blockIndex].end<=start)blockIndex++
+            val block=structure.blocks.getOrNull(blockIndex)
+            val body=block!=null&&start>=block.start&&start<block.end&&block.kind=="body"
+            val end=layout.getLineEnd(line)
+            val visibleEnd=layout.getLineVisibleEnd(line).coerceIn(start,end)
+            val endsParagraph=end>=text.length||(end>0&&text[end-1]=='\n')||(end<text.length&&text[end]=='\n')
+            lineSpans+=CjkTypography.LineSpan(start,visibleEnd,layout.getLineMax(line),endsParagraph,body,wordSpacing[line]>0f)
+        }
+        cjkSpacing=CjkTypography.letterSpacing(text,lineSpans,textWidth.toFloat(),font)
+        cjkJustifiedLines=cjkSpacing.count {it>0f}
         val generated:List<List<Column>>
         if(structure.comic&&structure.blocks.any {it.kind=="image"}) {
             val imageLines=structure.blocks.filter {it.kind=="image"}.map {layout.getLineForOffset(it.start)}.distinct().sorted()
@@ -133,8 +201,28 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
             slices += Column(first, last, layout.getLineStart(first), layout.getLineEnd(last))
             first = last + 1
         }
-        val paged=mutableListOf<List<Column>>();val current=mutableListOf<Column>()
+        // A plate owns its page: split any slice that crosses it and never let a second column
+        // share the plate page. This keeps a cover/title/art page as ONE original page.
+        val splitSlices=mutableListOf<Column>()
         for(slice in slices) {
+            val ranges=plateLineRanges.filter {it.first in slice.firstLine..slice.lastLine||it.last in slice.firstLine..slice.lastLine}
+            if(ranges.isEmpty()) {splitSlices+=slice;continue}
+            var at=slice.firstLine
+            for(range in ranges.sortedBy {it.first}) {
+                if(range.first>at) splitSlices+=Column(at,range.first-1,layout.getLineStart(at),layout.getLineEnd(range.first-1))
+                splitSlices+=Column(range.first,range.last,layout.getLineStart(range.first),layout.getLineEnd(range.last))
+                at=range.last+1
+            }
+            if(at<=slice.lastLine) splitSlices+=Column(at,slice.lastLine,layout.getLineStart(at),layout.getLineEnd(slice.lastLine))
+        }
+        val paged=mutableListOf<List<Column>>();val current=mutableListOf<Column>()
+        for(slice in splitSlices) {
+            val plate=plateLines.any {it in slice.firstLine..slice.lastLine}
+            if(plate) {
+                if(current.isNotEmpty()){paged+=current.toList();current.clear()}
+                paged+=listOf(slice)
+                continue
+            }
             val startsMajor=headings.any {(block,line)->block.level<=1&&line in slice.firstLine..slice.lastLine&&text.substring(slice.start,block.start).isBlank()}
             if(current.isNotEmpty()&&startsMajor){paged+=current.toList();current.clear()}
             current+=slice
@@ -182,21 +270,34 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
     }
 
     internal fun drawNativeText(canvas:Canvas,first:Int=0,last:Int=layout.lineCount-1) {
-        val nativePaint=layout.paint;val original=nativePaint.wordSpacing
+        val nativePaint=layout.paint;val originalWord=nativePaint.wordSpacing;val originalLetter=nativePaint.letterSpacing
         try {
             for(line in first..last) {
                 canvas.save();canvas.clipRect(0f,layout.getLineTop(line).toFloat(),columnWidth.toFloat(),layout.getLineBottom(line).toFloat())
                 (canvas as? TextDrawProbe.CaptureCanvas)?.limit(line)
                 nativePaint.wordSpacing=wordSpacing[line]
+                nativePaint.letterSpacing=cjkSpacing[line]
                 layout.draw(canvas);canvas.restore()
             }
-        } finally {nativePaint.wordSpacing=original;(canvas as? TextDrawProbe.CaptureCanvas)?.resetLimit()}
+        } finally {nativePaint.wordSpacing=originalWord;nativePaint.letterSpacing=originalLetter;(canvas as? TextDrawProbe.CaptureCanvas)?.resetLimit()}
     }
 
     fun draw(canvas: Canvas, page: Int) {
         pages[page.coerceIn(pages.indices)].forEachIndexed { i, slice ->
             canvas.save()
-            canvas.translate(margin + i * (columnWidth + gutter), bodyTop)
+            val plateSlice=plateLines.any {it in slice.firstLine..slice.lastLine}
+            if(plateSlice) {
+                canvas.translate(margin, bodyTop)
+                canvas.clipRect(0f, 0f, plateSpanWidth.toFloat(), bodyHeight)
+                canvas.translate(0f, -layout.getLineTop(slice.firstLine).toFloat())
+                layout.draw(canvas)
+                canvas.restore();return@forEachIndexed
+            }
+            val firstBlock=structure.blocks.firstOrNull {it.start<=slice.start&&it.end>slice.start}
+            val opening=firstBlock?.kind=="heading"&&firstBlock.level<=1
+            val usedHeight0=layout.getLineBottom(slice.lastLine)-layout.getLineTop(slice.firstLine)
+            val openingPad=if(opening&&usedHeight0+font*1.6f<=bodyHeight) font*1.6f else 0f
+            canvas.translate(margin + i * (columnWidth + gutter), bodyTop+openingPad)
             if(structure.comic) {
                 val imageLine=structure.blocks.firstOrNull {it.kind=="image"&&layout.getLineForOffset(it.start) in slice.firstLine..slice.lastLine}?.let {layout.getLineForOffset(it.start)}
                 if(imageLine!=null) {
@@ -212,5 +313,15 @@ internal class BookLayout(val text: String, val viewportWidth: Float, val viewpo
             drawNativeText(canvas,slice.firstLine,slice.lastLine)
             canvas.restore()
         }
+    }
+
+    internal companion object {
+        /**
+         * Instrumentation counter for construction cost in StaticLayout builds. A layout whose
+         * paragraphs need no ParagraphTail span now costs 1 build (previously 2); protecting at
+         * least one tail still costs 2. Reset before a case and read after constructing BookLayout.
+         */
+        @Volatile internal var layoutBuilds=0
+        internal fun resetLayoutBuilds(){layoutBuilds=0}
     }
 }

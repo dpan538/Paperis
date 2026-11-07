@@ -23,7 +23,7 @@ internal class PdfPages(private val context:Context?,private val workspace:File,
             val json=JSONObject(checkpoint.readText());check(json.optString("engine")==engineVersion);val saved=json.getJSONArray("images")
             repeat(saved.length()) {val key=saved.getString(it);val image=File(workspace,key);check(image.isFile);images[key]=image}
             val list=json.getJSONArray("lines")
-            return (0 until list.length()).map {list.getJSONArray(it).let {a->PdfReflow.Line(a.getString(0),RectF(a.getDouble(1).toFloat(),a.getDouble(2).toFloat(),a.getDouble(3).toFloat(),a.getDouble(4).toFloat()),index,a.optBoolean(5),a.optBoolean(6),a.optDouble(7,100.0).toFloat(),a.optString(8))}}
+            return (0 until list.length()).map {list.getJSONArray(it).let {a->PdfReflow.Line(a.getString(0),RectF(a.getDouble(1).toFloat(),a.getDouble(2).toFloat(),a.getDouble(3).toFloat(),a.getDouble(4).toFloat()),index,a.optBoolean(5),a.optBoolean(6),a.optDouble(7,100.0).toFloat(),a.optString(8),a.optBoolean(9))}}
         }
         var lines=if(!forceOcr&&Build.VERSION.SDK_INT>=35)nativeLines(page,index) else emptyList()
         val needsOcr=lines.sumOf {it.text.count {c->c.isLetterOrDigit()}}<8
@@ -59,9 +59,26 @@ internal class PdfPages(private val context:Context?,private val workspace:File,
             // Tess supplies reading order (including columns); place figures without re-sorting text.
             val merged=lines.toMutableList()
             for(figure in added) {val at=merged.indexOfFirst {it.box.top>=figure.box.bottom};merged.add(if(at<0)merged.size else at,figure)}
-            val json=JSONObject().put("engine",engineVersion).put("lines",JSONArray().apply {merged.forEach {l->put(JSONArray(listOf(l.text,l.box.left,l.box.top,l.box.right,l.box.bottom,l.pageStart,l.ocr,l.confidence,l.image)))}}).put("images",JSONArray(pageImages))
+            val json=JSONObject().put("engine",engineVersion).put("lines",JSONArray().apply {merged.forEach {l->put(JSONArray(listOf(l.text,l.box.left,l.box.top,l.box.right,l.box.bottom,l.pageStart,l.ocr,l.confidence,l.image,l.plate)))}}).put("images",JSONArray(pageImages))
             val partial=File(workspace,"page-$index.partial");partial.writeText(json.toString());check(partial.renameTo(checkpoint))
             return merged
+        } finally {bitmap.recycle()}
+    }
+    /** Render the complete original page as one grayscale plate, preserving its composition. */
+    fun fullPage(page:PdfRenderer.Page,index:Int):PdfReflow.Line {
+        workspace.mkdirs()
+        val scale=(2400f/maxOf(page.width,page.height)).coerceIn(1f,4f)
+        val bitmap=Bitmap.createBitmap(ceil(page.width*scale).toInt(),ceil(page.height*scale).toInt(),Bitmap.Config.ARGB_8888)
+        try {
+            val canvas=Canvas(bitmap);canvas.drawColor(Color.WHITE)
+            page.render(bitmap,null,Matrix().apply {setScale(scale,scale)},PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+            val gray=Bitmap.createBitmap(bitmap.width,bitmap.height,Bitmap.Config.ARGB_8888)
+            Canvas(gray).drawBitmap(bitmap,0f,0f,Paint(Paint.ANTI_ALIAS_FLAG).apply {colorFilter=ColorMatrixColorFilter(ColorMatrix().apply {setSaturation(0f)})})
+            val key=BookFiles.hashBytes("page-$index-plate".toByteArray())
+            val image=File(workspace,key)
+            image.outputStream().use {gray.compress(Bitmap.CompressFormat.JPEG,92,it)}
+            images[key]=image;gray.recycle()
+            return PdfReflow.Line("\uFFFC",RectF(0f,0f,page.width.toFloat(),page.height.toFloat()),index,image=key,plate=true)
         } finally {bitmap.recycle()}
     }
     @android.annotation.TargetApi(35)

@@ -81,7 +81,7 @@ internal class UpdateEvidence(private val host:Instrumentation) {
             val apk="Paperis-$version.apk"
             var sample=future
             updates.releaseFeed={JSONArray().put(JSONObject().put("tag_name","v$version").put("assets",JSONArray().put(JSONObject().put("name","paperis-update.json").put("browser_download_url",root+"paperis-update.json")).put(JSONObject().put("name",apk).put("size",sample.length()).put("browser_download_url",root+apk)))).toString()}
-            updates.manifestText={JSONObject().put("schemaVersion",1).put("packageName",targetContext.packageName).put("apk",apk).put("versionCode",archive.longVersionCode).put("versionName",version).put("sha256",AppUpdates.sha(sample)).put("certificateSha256",cert).toString()}
+            updates.manifestText={JSONObject().put("schemaVersion",1).put("packageName",targetContext.packageName).put("apk",apk).put("versionCode",archive.longVersionCode).put("versionName",version).put("sha256",AppUpdates.sha(sample)).put("certificateSha256",cert).put("channel","beta").put("highlights",JSONArray().put("Beta channel is explicit in-app").put("PDF outline and plate pages").put("220 ms e-ink page turn")).toString()}
             val offsets=mutableListOf<Long>();var cut=true
             updates.testDownload={_,offset->
                 offsets+=offset;val input=sample.inputStream();input.skip(offset)
@@ -92,6 +92,8 @@ internal class UpdateEvidence(private val host:Instrumentation) {
             ui {activity.inkView.menuCommand(MenuCommand(MenuAction.CHECK_UPDATE))}
             waitFor("available"){!updates.working&&updates.ui.phase==UpdatePhase.AVAILABLE}
             verify("Update opens an in-app panel without a browser",!browser&&ui {activity.inkView.menuPage==MenuPage.UPDATE})
+            verify("Beta channel and curated core highlights are explicit",updates.candidate?.channel=="beta"&&ui {activity.inkView.updateChannel}=="beta"&&ui {activity.inkView.updateNotes}.contains("220 ms")&&!ui {activity.inkView.updateNotes}.contains("github"))
+            uiAutomation.takeScreenshot()?.let {b->File(output,"beta-update-panel.png").outputStream().use {b.compress(Bitmap.CompressFormat.PNG,100,it)};b.recycle()}
             ui {activity.inkView.menuCommand(MenuCommand(MenuAction.DOWNLOAD_UPDATE))}
             waitFor("retained partial"){!updates.working&&updates.ui.phase==UpdatePhase.AVAILABLE&&offsets.size==1}
             verify("Interrupted download retains bytes for resuming",offsets.single()==0L&&File(targetContext.filesDir,"updates").listFiles().orEmpty().any {it.extension=="part"&&it.length()==1024L*1024})

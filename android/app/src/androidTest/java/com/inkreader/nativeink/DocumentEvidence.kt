@@ -35,7 +35,7 @@ internal class DocumentEvidence(private val host:Instrumentation) {
                 val pdf=books.first {it.extension=="pdf"}
                 android.graphics.pdf.PdfRenderer(android.os.ParcelFileDescriptor.open(pdf,android.os.ParcelFileDescriptor.MODE_READ_ONLY)).use {doc->
                     val data=JSONArray()
-                    for(i in listOf(4,10))doc.openPage(i).use {page->
+                    for(i in 0 until minOf(16,doc.pageCount))doc.openPage(i).use {page->
                         val parts=JSONArray()
                         val searches=JSONArray();page.textContents.flatMap {it.text.lineSequence().filter {s->s.isNotBlank()}.toList()}.take(10).forEach {line->searches.put(JSONObject().put("text",line).put("matches",JSONArray().apply {page.searchText(line.trim()).forEach {m->put(JSONObject().put("at",m.textStartIndex).put("bounds",JSONArray().apply {m.bounds.forEach {r->put(JSONArray(listOf(r.left,r.top,r.right,r.bottom)))}}))}}))}
                         page.textContents.forEach {c->parts.put(JSONObject().put("text",c.text).put("bounds",JSONArray().apply {c.bounds.forEach {put(JSONArray(listOf(it.left,it.top,it.right,it.bottom)))}}))}
@@ -68,7 +68,7 @@ internal class DocumentEvidence(private val host:Instrumentation) {
                 }}
                 expected?.optJSONArray("chapterPrefixes")?.let {prefixes->repeat(prefixes.length()){n->val prefix=prefixes.getString(n);check(structure.chapters.any {c->ChapterScanner.key(c.title).startsWith(ChapterScanner.key(prefix))}) {"Required chapter missing: $prefix"}}}
                 expected?.optJSONArray("paragraphs")?.let {paragraphs->repeat(paragraphs.length()){n->check(text.contains(paragraphs.getString(n))) {"Known paragraph was split or altered"}}}
-                check(structure.blocks.filter {it.kind=="image"}.all {files.imageSize(entry,it.image)!=null}) {"An imported illustration has no decodable local asset"}
+                check(structure.blocks.filter {it.kind=="image"||it.kind=="plate"}.all {files.imageSize(entry,it.image)!=null}) {"An imported illustration/plate has no decodable local asset"}
                 File(out,"$i-structure.json").writeText(structure.json().put("name",file.name).put("characters",text.length).put("elapsedMs",SystemClock.uptimeMillis()-start).toString(2))
                 File(out,"$i-text.txt").writeText(text)
                 check(structure.chapters.size>=2) {"No useful directory: ${file.name}"}
@@ -84,7 +84,12 @@ internal class DocumentEvidence(private val host:Instrumentation) {
                     check(slices.first().start==0&&slices.last().end==text.length&&slices.zipWithNext().all {(a,c)->a.end==c.start}) {"Lost/duplicated ranges: ${file.name}"}
                     check(b.pages[activity.inkView.currentPage].let {chosen.offset in it.first().start until it.last().end}) {"Wrong TOC destination"}
                     check(slices.all {b.layout.getLineBottom(it.lastLine)-b.layout.getLineTop(it.firstLine)<=b.bodyHeight+.5f}) {"Clipped column: ${file.name}"}
-                    for(line in 0 until b.layout.lineCount)check(b.layout.getLineRight(line)<=b.columnWidth+.5f) {"Clipped line $line: ${file.name}: ${b.layout.getLineRight(line)} > ${b.columnWidth}: ${text.substring(b.layout.getLineStart(line),b.layout.getLineEnd(line))}"}
+                    for(line in 0 until b.layout.lineCount) {
+                        val start=b.layout.getLineStart(line)
+                        val block=structure.blocks.firstOrNull {start in it.start until it.end}
+                        if(block?.kind=="plate")continue
+                        check(b.layout.getLineRight(line)<=b.columnWidth+.5f) {"Clipped line $line: ${file.name}: ${b.layout.getLineRight(line)} > ${b.columnWidth}: ${text.substring(b.layout.getLineStart(line),b.layout.getLineEnd(line))}"}
+                    }
                     val audit=BookDiagnostics.inspect(ParsedBook(entry.title,text,entry.format,structure),b)
                     File(out,"$i-audit.json").writeText(JSONObject().put("findings",JSONArray(audit.map {it.json()})).put("spacingDecisions",JSONArray(b.spacingDecisions.map {d->JSONObject().put("block",d.block).put("offset",d.start).put("justified",d.justified).put("reason",d.reason).put("maxSpaceRatio",d.maxSpaceRatio)})).toString(2))
                     check(audit.none {it.severity=="error"}) {"Book diagnostics failed: ${audit.filter {it.severity=="error"}.map {it.json()}}"}

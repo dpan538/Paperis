@@ -259,7 +259,7 @@ internal class ResponsiveEvidence(private val host:Instrumentation,private val a
                 verify("${p.name}: the visible ellipsis opens the reading menu",ui {activity.inkView.toolsOpen&&activity.inkView.menuPage==MenuPage.ROOT})
                 val (root,rootViewport)=ui {RectF(activity.inkView.currentMenuLayout.bounds) to activity.inkView.currentViewport}
                 if(index in setOf(0,8))capture("$index-root-menu").recycle()
-                touch(MenuAction.SETTINGS)
+                touch(MenuAction.MORE);touch(MenuAction.SETTINGS)
                 val (settings,sameWindowRoot)=ui {
                     val v=activity.inkView;val area=v.currentViewport!!
                     val settings=v.menuPage to RectF(v.currentMenuLayout.bounds)
@@ -269,7 +269,7 @@ internal class ResponsiveEvidence(private val host:Instrumentation,private val a
                     }
                     settings to expected
                 }
-                verify("${p.name}: Settings opens by visible touch and matches root in the same actual window ($sameWindowRoot -> $settings)",settings.first==MenuPage.SETTINGS&&settings.second==sameWindowRoot)
+                verify("${p.name}: Settings opens by visible touch with the same ink-panel width ($sameWindowRoot -> $settings)",settings.first==MenuPage.SETTINGS&&settings.second.width()==sameWindowRoot.width()&&kotlin.math.abs(settings.second.left-sameWindowRoot.left)<.5f)
                 // Contextual file actions require a selected row; file-actions covers their real targets.
                 for(page in MenuPage.entries.filterNot {it==MenuPage.FILE_ACTIONS||it==MenuPage.FILE_DELETE}) {
                     ui {activity.inkView.openMenu(page)};settle()

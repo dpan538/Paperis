@@ -4,76 +4,56 @@
 
 *As gentle as paper, as pure as reading.*
 
-面向 Android 手机与 Pad 的极简阅读器，以细腻的黑白墨水屏质感，找回纸质书的宁静与沉浸。
-
-**墨水屏质感 · 自动文本重排 · 离线 OCR · 本地书库**
-
 ## 产品定位
 
 **用你已有的平板，复刻一台墨水屏的阅读习惯；把 PDF / EPUB 做成真正的书，而不是把页面文字倒进一列。**
 
-Paperis 不是墨水屏硬件的替代品，也不宣称零功耗、真实电泳粒子或护眼效果。它把电子纸最值得保留的部分——反射式的光、稳定的纸面、固定的翻页节奏、不被打断的安静——带到一块高分辨率平板上；同时用本地重排、目录与离线 OCR，把"打开 PDF"变成"读完一本书"。
+Paperis 不替代墨水屏硬件，也不宣称零功耗或真实电泳粒子。它把稳定的纸面、安静的黑白阅读和固定的翻页节奏带到平板上，并用本地重排、目录与离线 OCR 把 PDF 做成可读的书。
 
-优先适配 **Xiaomi Pad 9 Pro Max**：13.3 英寸 3.4K LCD（3408 × 2272，3:2，308 PPI，144 Hz，700 nits 典型亮度 / 1000 nits HBM 峰值），并以 3408 × 2272 作为原生渲染与验收基准。
-
-*Turn the tablet you already own into e-ink reading habits — and make PDFs into real books.*
+优先适配 **Xiaomi Pad 9 Pro Max**：13.3 英寸 3.4K LCD（3408 × 2272，308 PPI，144 Hz，700 nits 典型亮度），以 3408 × 2272 作为渲染与验收基准。
 
 ![Android 13+](https://img.shields.io/badge/Android-13%2B-555555)
-![Beta](https://img.shields.io/badge/Status-1.0.3_Beta-303030)
+![Stable](https://img.shields.io/badge/Status-1.0.4-303030)
 [![MIT License](https://img.shields.io/badge/License-MIT-555555)](LICENSE)
 
 ## 下载与安装
 
-[![下载 1.0.3 Beta APK](https://img.shields.io/badge/下载_1.0.3_Beta_APK-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v1.0.3-preview/Paperis-1.0.3-preview.apk)
+[![下载 Android APK](https://img.shields.io/badge/下载_1.0.4_APK-303030?style=for-the-badge&logo=android&logoColor=white)](https://github.com/dpan538/Paperis/releases/download/v1.0.4/Paperis-1.0.4.apk)
 
-**[直接下载 1.0.3 Beta APK](https://github.com/dpan538/Paperis/releases/download/v1.0.3-preview/Paperis-1.0.3-preview.apk)** · [正式版 1.0.1](https://github.com/dpan538/Paperis/releases/download/v1.0.1/Paperis-1.0.1.apk) · [版本说明与历史下载](https://github.com/dpan538/Paperis/releases)
+**[直接下载 1.0.4 APK](https://github.com/dpan538/Paperis/releases/download/v1.0.4/Paperis-1.0.4.apk)** · [版本与历史下载](https://github.com/dpan538/Paperis/releases)
 
-> **1.0.3 是 beta 测试版**：用于体验 PDF 成书、整页图版与新的书页几何，可能仍有不稳定。想保持稳定请继续使用正式版 **1.0.1**；应用内检查更新会明确标注 beta，不会把 beta 当成正式版。
+需要 **Android 13 及以上、ARM64 设备**。已有官方版本可直接覆盖升级，也可在应用内检查更新。
 
-需要 **Android 13 及以上、ARM64 设备**。下载后按系统提示安装；已有官方预览版可直接覆盖升级，也可在应用内检查更新。
+## 核心体验
 
-> 当前正式版仍为 **1.0.1**；1.0.3-preview 是公开的 beta 测试版，提供三种纸张纹理、环境光纸面、220 ms 墨水屏翻页与 PDF 成书/整页图版。
-
-## 核心特性
-
-| 功能 | 阅读体验 |
-| --- | --- |
-| **纸墨质感** | 白瓷、护眼、类纸三种纸张纹理，随环境光变化的纸面，固定 220 ms 墨水屏翻页节奏。 |
-| **屏幕与刷新** | 自动、纸感、轻快三种刷新方式，支持阅读时常亮与方向锁定。 |
-| **阅读预设** | 五档冷暖、三档对比度与亮度，支持夜间前光模拟和黑底白字的深色模式。 |
-| **自由排版** | 调整字体、字号与行距，导入自定义字体；适配单栏与双栏，重排后自动复检并保留阅读位置。 |
-| **章节导航** | 保留原书目录与标题层级，缺少有效目录时自动生成，兼顾中英文段落与换行。 |
-| **离线识别** | 内置中英文离线 OCR，支持扫描 PDF、插图与原页查看。 |
-| **本地书库** | 多选或按文件夹导入，重复文件自动跳过；支持单本重新排版与删除，无需重复导入。 |
-| **保存与恢复** | 自动保存阅读进度与书签，支持备份到自选本地文件夹并恢复书库。 |
+- **纸墨质感**：白瓷、护眼、类纸三种纸面；环境光纸面；220 ms 无闪局部翻页。
+- **PDF 成书**：PDFBox 读取真实页树、原生目录与页码标签；封面/整页插画作为一页等比缩放；扫描件离线 OCR。
+- **安静阅读**：专注模式、夜间/深色/专注三个模式、章节导航、书签与本地阅读进度。
+- **本地书库**：多选/文件夹导入、续读、重新排版、删除与本地备份恢复。
 
 ## 格式支持
 
-| 格式 | 核心支持 |
+| 格式 | 支持 |
 | --- | --- |
-| TXT | 多编码文本、段落重排、自动目录 |
+| TXT | 多编码、段落重排、自动目录 |
 | EPUB | 正文重排、分级目录、插图 |
-| PDF | 文本重排、扫描件 OCR、原生目录、整页图版、插图与原页查看 |
-| CBZ / 图片 ZIP | 漫画逐页阅读、自然页序排列 |
+| PDF | 文本重排、原生目录、整页图版、扫描件 OCR、原页查看 |
+| CBZ / 图片 ZIP | 漫画逐页阅读、自然页序 |
 | Markdown / HTML | 正文、标题与链接文字 |
 | DOCX | 段落、标题与自动目录 |
 
-单文件最大 **64 MiB**；彩色插图与漫画以灰度呈现，原文件保留。暂不支持加密书籍、CBR / RAR、旧版 DOC、MOBI、AZW；复杂表格、公式与固定版式不保证原样还原。
+单文件最大 **64 MiB**；彩色内容以灰度呈现，原文件保留。暂不支持加密书籍、CBR/RAR、旧版 DOC、MOBI、AZW；复杂表格、公式与固定版式不保证原样还原。
 
-## 手机与平板适配
+## 设备与说明
 
-Paperis 重点适配主流 Android 手机与小米平板，支持横竖屏、分屏、系统大字号和不同窗口尺寸。手机采用适合小屏的字号与单栏布局，大平板保留宽屏阅读效果；**小米 Pad 9 Pro Max** 继续作为主要平板适配目标。
-
-当前正式版为 **1.0.1**；**1.0.3-preview 是 beta 测试版**，已通过手机与平板窗口的模拟器验证，仍需结合具体小米实机验收。墨水屏质感、环境光与前光均为视觉模拟；试读文本《Church》由作者提供。
+适配主流 Android 手机与平板，支持横竖屏、分屏和系统大字号。**Xiaomi Pad 9 Pro Max** 是主要平板目标；当前验证基于模拟器，仍需结合具体小米实机验收。墨水屏质感、环境光与前光均为视觉模拟。
 
 ## 隐私与许可
 
-无需账号，书籍、OCR 与阅读记录均在本机处理和保存，无广告、无追踪，也不申请通知权限。
+无需账号；书籍、OCR 与阅读记录均在本机处理和保存，无广告、无追踪，不申请通知权限。仅在主动更新或反馈时联网。
 
-仅在主动更新或反馈时联网，提交的反馈会作为公开 GitHub Issue 发布；卸载前请备份到自选本地文件夹，以便重装后恢复。
-
-项目采用 [MIT License](LICENSE)，第三方组件见 [许可说明](THIRD_PARTY_NOTICES.md)，导入的书籍与字体仍遵循各自授权。
+项目采用 [MIT License](LICENSE)；第三方组件见 [许可说明](THIRD_PARTY_NOTICES.md)，导入的书籍与字体仍遵循各自授权。
 
 ---
 
-[开发说明](DEV.md) · [构建与贡献](CONTRIBUTING.md) · [测试方案](docs/REFLOW_TESTING.md)
+[开发说明](DEV.md) · [构建与贡献](CONTRIBUTING.md) · [测试说明](docs/REFLOW_TESTING.md)
